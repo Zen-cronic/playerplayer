@@ -161,6 +161,102 @@ export async function runCounts(experimentId: string): Promise<Record<string, nu
   return Object.fromEntries(rows.map((r) => [r.variant, Number(r.n)]));
 }
 
+export interface ExperimentRow {
+  experimentId: string;
+  variants: string[];
+  runs: number;
+  deaths: number;
+  lastRun: string;
+}
+
+// Registry view for /dashboard: what has been run, when, and how lethal it was.
+export async function experimentRows(limit = 50): Promise<ExperimentRow[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT
+        experiment_id,
+        groupUniqArray(variant) AS variants,
+        count() AS runs,
+        countIf(verdict = 'lose') AS deaths,
+        toString(max(inserted_at)) AS last_run
+      FROM bot_runs
+      GROUP BY experiment_id
+      ORDER BY max(inserted_at) DESC
+      LIMIT {limit: UInt16}
+    `,
+    query_params: { limit },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<{
+    experiment_id: string;
+    variants: string[];
+    runs: string;
+    deaths: string;
+    last_run: string;
+  }>();
+  return rows.map((r) => ({
+    experimentId: r.experiment_id,
+    variants: [...r.variants].sort(),
+    runs: Number(r.runs),
+    deaths: Number(r.deaths),
+    lastRun: r.last_run,
+  }));
+}
+
+export interface WatchReportRow {
+  date: string;
+  prevDate: string;
+  room: string;
+  runs: number;
+  deathRate: number;
+  prevDeathRate: number;
+  verdict: string;
+  cellsChanged: number;
+}
+
+export async function watchReportRows(limit = 14): Promise<WatchReportRow[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT
+        toString(date) AS date,
+        toString(prev_date) AS prev_date,
+        room,
+        runs,
+        death_rate,
+        prev_death_rate,
+        verdict,
+        cells_changed
+      FROM watch_reports FINAL
+      ORDER BY date DESC
+      LIMIT {limit: UInt8}
+    `,
+    query_params: { limit },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<{
+    date: string;
+    prev_date: string;
+    room: string;
+    runs: number;
+    death_rate: number;
+    prev_death_rate: number;
+    verdict: string;
+    cells_changed: number;
+  }>();
+  return rows.map((r) => ({
+    date: r.date,
+    prevDate: r.prev_date,
+    room: r.room,
+    runs: Number(r.runs),
+    deathRate: Number(r.death_rate),
+    prevDeathRate: Number(r.prev_death_rate),
+    verdict: r.verdict,
+    cellsChanged: Number(r.cells_changed),
+  }));
+}
+
 export interface CulpritRun {
   runId: string;
   archetype: string;
