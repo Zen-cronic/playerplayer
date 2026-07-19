@@ -7,6 +7,9 @@ import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
 import type { InferChatUIMessage } from "@trigger.dev/sdk/chat/react";
 import type { playtestChat } from "../trigger/playtest-chat";
 import { mintChatAccessToken, startChatSession } from "./actions";
+import { HeatmapCard, type HeatmapOutput } from "../components/heatmap-card";
+import { DeltaCard, type DeltaOutput } from "../components/delta-card";
+import { FunnelCard, type FunnelOutput } from "../components/funnel-card";
 
 type PlaytestMessage = InferChatUIMessage<typeof playtestChat>;
 
@@ -110,6 +113,18 @@ export function Chat() {
                       </div>
                     </div>
                   );
+                }
+
+                if (toolPart.state === "output-available" && toolPart.output != null) {
+                  if (part.type === "tool-queryHeatmap") {
+                    return <HeatmapCard key={i} output={toolPart.output as HeatmapOutput} />;
+                  }
+                  if (part.type === "tool-queryDelta") {
+                    return <DeltaCard key={i} output={toolPart.output as DeltaOutput} />;
+                  }
+                  if (part.type === "tool-queryFunnel") {
+                    return <FunnelCard key={i} output={toolPart.output as FunnelOutput} />;
+                  }
                 }
 
                 return (
