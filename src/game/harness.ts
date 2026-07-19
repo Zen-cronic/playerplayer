@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Phaser, simNow } from "./headless-context";
+import { Phaser, simNow, clearPendingFrames } from "./headless-context";
 import { TelemetryBuffer } from "./telemetry";
 import { ExplorerBot, type BotArchetype } from "./bot";
 import Level from "../../vendor/tilemap-pack/src/scenes/Level.js";
@@ -94,20 +94,28 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
       if (finished) return;
       finished = true;
       record("run_end", verdict);
+      const result: RunResult = {
+        seed,
+        archetype,
+        verdict,
+        simMs: Math.round(simNow() - simStart),
+        wallMs: Date.now() - wallStart,
+        coins: state().coins,
+        roomsVisited,
+        events: telemetry.events,
+      };
       game.events.off(Phaser.Core.Events.POST_STEP, onPostStep);
-      setImmediate(() => {
-        game.destroy(false);
-        resolve({
-          seed,
-          archetype,
-          verdict,
-          simMs: Math.round(simNow() - simStart),
-          wallMs: Date.now() - wallStart,
-          coins: state().coins,
-          roomsVisited,
-          events: telemetry.events,
+      // destroy() only marks pendingDestroy; teardown happens on the game's
+      // next step, and its final step re-requests a frame after DESTROY
+      // fires. Flush that zombie frame on the next tick, before resolving,
+      // so the next run boots onto a clean scheduler.
+      game.events.once(Phaser.Core.Events.DESTROY, () => {
+        setImmediate(() => {
+          clearPendingFrames();
+          resolve(result);
         });
       });
+      setImmediate(() => game.destroy(false));
     };
 
     const onPostStep = () => {
