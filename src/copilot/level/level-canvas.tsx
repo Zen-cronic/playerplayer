@@ -23,6 +23,8 @@ const TRAIL_COLORS: Record<string, string> = {
   rusher: "#fb923c",
   explorer: "#22d3ee",
   cautious: "#a3e635",
+  // The player's own run has to read instantly against red deaths and blue traffic.
+  human: "#ffffff",
 };
 
 interface LevelCanvasProps {
@@ -33,6 +35,8 @@ interface LevelCanvasProps {
   onCellClick?: (gx: number, gy: number) => void;
   /** ghost trails drawn over the map, revealed progressively */
   trails?: CanvasTrail[];
+  /** keep the aggregate wash visible under the trails (human-vs-swarm overlay) */
+  keepCellColors?: boolean;
   scale?: number;
 }
 
@@ -42,6 +46,7 @@ export function LevelCanvas({
   tooltipFor,
   onCellClick,
   trails,
+  keepCellColors = false,
   scale: scaleProp,
 }: LevelCanvasProps) {
   const contextScale = useCanvasScale();
@@ -123,9 +128,10 @@ export function LevelCanvas({
       }
     }
 
-    // Trails replace the aggregate wash — showing both at once is unreadable.
+    // A hotspot replay replaces the aggregate wash (both at once is
+    // unreadable); the human-vs-swarm overlay deliberately keeps it.
     const replaying = Boolean(trails && trails.length > 0);
-    if (!replaying) {
+    if (!replaying || keepCellColors) {
       for (const [key, color] of cellColors) {
         const [gx, gy] = key.split(",").map(Number);
         ctx.fillStyle = color;
@@ -182,7 +188,7 @@ export function LevelCanvas({
     }
     void objects;
     void longest;
-  }, [geometry, cellColors, scale, trails, progress, longest]);
+  }, [geometry, cellColors, scale, trails, progress, longest, keepCellColors]);
 
   return (
     <div ref={wrapRef} className="relative w-full">

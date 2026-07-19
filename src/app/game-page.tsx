@@ -12,21 +12,22 @@ import { fetchCulpritRuns, mintChatAccessToken, startChatSession } from "./actio
 const FLUSH_EVERY = 40;
 
 export function GamePage() {
-  const runIdRef = useRef<string>(`human-${crypto.randomUUID()}`);
-  const bufferRef = useRef<BrowserGameEvent[]>([]);
+  // Buffered per run id, so a stale game instance can never append its samples
+  // to the live run.
+  const buffersRef = useRef(new Map<string, BrowserGameEvent[]>());
   const [sent, setSent] = useState(0);
   const [status, setStatus] = useState<"idle" | "sending" | "error">("idle");
 
-  const flush = useCallback(async (force = false) => {
-    const buf = bufferRef.current;
-    if (buf.length === 0 || (!force && buf.length < FLUSH_EVERY)) return;
+  const flush = useCallback(async (runId: string, force = false) => {
+    const buf = buffersRef.current.get(runId);
+    if (!buf || buf.length === 0 || (!force && buf.length < FLUSH_EVERY)) return;
     const batch = buf.splice(0, buf.length);
     setStatus("sending");
     try {
       const res = await fetch("/api/ingest", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: runIdRef.current, events: batch }),
+        body: JSON.stringify({ runId, events: batch }),
       });
       if (!res.ok) throw new Error(await res.text());
       setSent((n) => n + batch.length);
@@ -37,9 +38,12 @@ export function GamePage() {
   }, []);
 
   const onEvent = useCallback(
-    (e: BrowserGameEvent) => {
-      bufferRef.current.push(e);
-      void flush(e.type === "run_end" || e.type === "death");
+    (e: BrowserGameEvent, runId: string) => {
+      const buffers = buffersRef.current;
+      const buf = buffers.get(runId) ?? [];
+      buf.push(e);
+      buffers.set(runId, buf);
+      void flush(runId, e.type === "run_end" || e.type === "death");
     },
     [flush],
   );

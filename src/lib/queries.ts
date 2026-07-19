@@ -125,12 +125,18 @@ export async function listExperimentRefs(limit = 24): Promise<ExperimentRef[]> {
 // The agent can't know experiment ids before it queries, so asking it to supply
 // one invites invented ids and empty charts. Resolve server-side instead:
 // an unknown or omitted id falls back to the most recent experiment.
-export async function resolveExperiment(requested?: string): Promise<{
+export async function resolveExperiment(
+  requested?: string,
+  opts: { exclude?: string[] } = {},
+): Promise<{
   ref: ExperimentRef | null;
   fellBack: boolean;
   known: string[];
 }> {
-  const refs = await listExperimentRefs();
+  const all = await listExperimentRefs();
+  const refs = opts.exclude?.length
+    ? all.filter((r) => !opts.exclude!.includes(r.experimentId))
+    : all;
   const hit = requested ? refs.find((r) => r.experimentId === requested) : undefined;
   return {
     ref: hit ?? refs[0] ?? null,
@@ -138,6 +144,9 @@ export async function resolveExperiment(requested?: string): Promise<{
     known: refs.map((r) => r.experimentId),
   };
 }
+
+/** Human play sessions share bot_events but must never be mistaken for a swarm. */
+export const HUMAN_EXPERIMENT = "human-play";
 
 export function pickVariant(ref: ExperimentRef, requested?: string): string {
   if (requested && ref.variants.includes(requested)) return requested;
@@ -331,41 +340,180 @@ export async function runTrails(
   experimentId: string,
   variant: string,
   runIds: string[],
+  bucketMs = 250,
 ): Promise<RunTrail[]> {
   if (runIds.length === 0) return [];
   const ch = getClickHouse();
+  // Downsample in the database, not the browser. A path drawn a few hundred
+  // pixels wide gains nothing from 10Hz+ samples, and a long human session can
+  // otherwise return tens of thousands of rows. Bucketing also collapses any
+  // duplicate samples for the same instant into one point.
   const rs = await ch.query({
     query: `
-      SELECT run_id, archetype, t, x, y, type
+      SELECT
+        run_id,
+        any(archetype) AS archetype,
+        toUInt32(intDiv(t, {bucketMs: UInt32})) AS bucket,
+        argMin(x, t) AS x,
+        argMin(y, t) AS y
       FROM bot_events
       WHERE experiment_id = {experimentId: String}
         AND variant = {variant: String}
         AND run_id IN {runIds: Array(String)}
-        AND type IN ('pos', 'death')
-      ORDER BY run_id, t
+        AND type = 'pos'
+      GROUP BY run_id, bucket
+      ORDER BY run_id, bucket
+      LIMIT 4000
     `,
-    query_params: { experimentId, variant, runIds },
+    query_params: { experimentId, variant, runIds, bucketMs },
     format: "JSONEachRow",
   });
   const rows = await rs.json<{
     run_id: string;
     archetype: string;
-    t: number;
+    bucket: number;
     x: number;
     y: number;
-    type: string;
   }>();
+
+  const deathRs = await ch.query({
+    query: `
+      SELECT run_id, argMax(x, t) AS x, argMax(y, t) AS y
+      FROM bot_events
+      WHERE experiment_id = {experimentId: String}
+        AND variant = {variant: String}
+        AND run_id IN {runIds: Array(String)}
+        AND type = 'death'
+      GROUP BY run_id
+    `,
+    query_params: { experimentId, variant, runIds },
+    format: "JSONEachRow",
+  });
+  const deaths = new Map(
+    (await deathRs.json<{ run_id: string; x: number; y: number }>()).map((d) => [
+      d.run_id,
+      { x: Number(d.x), y: Number(d.y) },
+    ]),
+  );
+
   const byRun = new Map<string, RunTrail>();
   for (const r of rows) {
     let trail = byRun.get(r.run_id);
     if (!trail) {
-      trail = { runId: r.run_id, archetype: r.archetype, points: [], death: null };
+      trail = {
+        runId: r.run_id,
+        archetype: r.archetype,
+        points: [],
+        death: deaths.get(r.run_id) ?? null,
+      };
       byRun.set(r.run_id, trail);
     }
-    if (r.type === "death") trail.death = { x: r.x, y: r.y };
-    else trail.points.push({ t: r.t, x: r.x, y: r.y });
+    trail.points.push({ t: r.bucket * bucketMs, x: Number(r.x), y: Number(r.y) });
   }
   return runIds.map((id) => byRun.get(id)).filter((t): t is RunTrail => Boolean(t));
+}
+
+export interface HumanRun {
+  runId: string;
+  room: string;
+  death: { x: number; y: number } | null;
+  lastT: number;
+  coins: number;
+}
+
+// The most recent human playthrough, whether or not it finished — a judge who
+// wanders off mid-run should still see their trail.
+export async function latestHumanRun(): Promise<HumanRun | null> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT
+        run_id,
+        any(room) AS room,
+        max(t) AS last_t,
+        max(coins) AS coins,
+        argMaxIf(x, t, type = 'death') AS death_x,
+        argMaxIf(y, t, type = 'death') AS death_y,
+        countIf(type = 'death') AS deaths
+      FROM bot_events
+      WHERE archetype = 'human'
+      GROUP BY run_id
+      ORDER BY max(inserted_at) DESC
+      LIMIT 1
+    `,
+    format: "JSONEachRow",
+  });
+  const [r] = await rs.json<{
+    run_id: string;
+    room: string;
+    last_t: number;
+    coins: number;
+    death_x: number;
+    death_y: number;
+    deaths: string;
+  }>();
+  if (!r) return null;
+  return {
+    runId: r.run_id,
+    room: r.room,
+    lastT: Number(r.last_t),
+    coins: Number(r.coins),
+    death: Number(r.deaths) > 0 ? { x: Number(r.death_x), y: Number(r.death_y) } : null,
+  };
+}
+
+export interface DeathNeighbourhood {
+  radiusTiles: number;
+  swarmRuns: number;
+  swarmDeathsNearby: number;
+  byArchetype: Array<{ archetype: string; deaths: number; runs: number }>;
+}
+
+// "You died where 62% of rushers die" — the swarm's death density around one
+// point, split by archetype so the comparison names a play style.
+export async function deathsNear(
+  experimentId: string,
+  variant: string,
+  room: string,
+  x: number,
+  y: number,
+  radiusTiles = 2,
+): Promise<DeathNeighbourhood> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT
+        archetype,
+        countIf(type = 'death' AND abs(x - {x: Float32}) <= {r: Float32} AND abs(y - {y: Float32}) <= {r: Float32}) AS deaths_nearby,
+        uniqExact(run_id) AS runs
+      FROM bot_events
+      WHERE experiment_id = {experimentId: String}
+        AND variant = {variant: String}
+        AND room = {room: String}
+      GROUP BY archetype
+    `,
+    query_params: {
+      experimentId,
+      variant,
+      room,
+      x,
+      y,
+      r: radiusTiles * 16,
+    },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<{ archetype: string; deaths_nearby: string; runs: string }>();
+  const byArchetype = rows.map((r) => ({
+    archetype: r.archetype,
+    deaths: Number(r.deaths_nearby),
+    runs: Number(r.runs),
+  }));
+  return {
+    radiusTiles,
+    swarmRuns: byArchetype.reduce((s, a) => s + a.runs, 0),
+    swarmDeathsNearby: byArchetype.reduce((s, a) => s + a.deaths, 0),
+    byArchetype,
+  };
 }
 
 export interface FunnelStage {

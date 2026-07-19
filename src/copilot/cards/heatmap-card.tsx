@@ -20,6 +20,13 @@ export interface HeatmapOutput {
   room: string;
   runs: number;
   queryMs?: number;
+  /** The human player's own run, drawn over the swarm aggregate. */
+  humanTrail?: CanvasTrail | null;
+  human?: { survivedMs: number; coins: number; died: boolean };
+  nearby?: {
+    radiusTiles: number;
+    byArchetype: Array<{ archetype: string; deaths: number; runs: number }>;
+  } | null;
   cells: Array<{
     gx: number;
     gy: number;
@@ -103,7 +110,10 @@ export function HeatmapCard({
         room={output.room}
         cellColors={cellColors}
         onCellClick={onDrillDown ? openCell : undefined}
-        trails={replay?.trails}
+        // A hotspot replay takes over the canvas; otherwise the player's own
+        // ghost trail stays pinned over the swarm heatmap.
+        trails={replay?.trails ?? (output.humanTrail ? [output.humanTrail] : undefined)}
+        keepCellColors={!replay && Boolean(output.humanTrail)}
         tooltipFor={(gx, gy) => {
           const c = byKey.get(`${gx},${gy}`);
           if (!c) return null;
@@ -136,6 +146,29 @@ export function HeatmapCard({
         </div>
       ) : (
         pending && <p className="mt-2 text-xs text-zinc-500">loading runs…</p>
+      )}
+      {output.human && (
+        <div className="mt-2 rounded-md border border-zinc-700 bg-zinc-900/60 p-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-0.5 w-4 bg-white" aria-hidden />
+            <span className="text-zinc-300">
+              your run · {(output.human.survivedMs / 1000).toFixed(0)}s · {output.human.coins} coins
+              · {output.human.died ? "died" : "no death recorded"}
+            </span>
+          </div>
+          {output.nearby && output.human.died && (
+            <ul className="mt-1 space-y-0.5 text-zinc-500">
+              {output.nearby.byArchetype
+                .filter((a) => a.archetype !== "human" && a.runs > 0)
+                .map((a) => (
+                  <li key={a.archetype}>
+                    {Math.round((a.deaths / a.runs) * 100)}% of {a.archetype} runs died within{" "}
+                    {output.nearby!.radiusTiles} tiles of where you did
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
       )}
       <Provenance
         runs={output.runs}

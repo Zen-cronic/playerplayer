@@ -5,12 +5,16 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { runExperiment } from "./run-experiment";
 import {
+  deathsNear,
   heatmap,
   heatmapDelta,
+  HUMAN_EXPERIMENT,
+  latestHumanRun,
   pickVariant,
   progressionFunnel,
   resolveExperiment,
   runCounts,
+  runTrails,
 } from "../lib/queries";
 import { getClickHouse } from "../lib/clickhouse";
 import { vendorMapPath, type Mutation } from "../game/mutate";
@@ -167,7 +171,7 @@ const tools = {
     }),
     execute: async ({ experimentId, variant, room }) => {
       const started = Date.now();
-      const { ref, fellBack, known } = await resolveExperiment(experimentId);
+      const { ref, fellBack, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
       if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
       const v = pickVariant(ref, variant);
       const [cells, counts] = await Promise.all([heatmap(ref.experimentId, v, room), runCounts(ref.experimentId)]);
@@ -209,7 +213,7 @@ const tools = {
     }),
     execute: async ({ experimentId, variantA, variantB, room }) => {
       const started = Date.now();
-      const { ref, fellBack, known } = await resolveExperiment(experimentId);
+      const { ref, fellBack, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
       if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
       const a = pickVariant(ref, variantA);
       const b =
@@ -275,6 +279,87 @@ const tools = {
     },
   }),
 
+  compareMyRun: tool({
+    description:
+      "Compare the human player's most recent playthrough against the bot swarm: renders their path as a ghost trail over the swarm death heatmap, and reports how many swarm runs died near where they did, split by archetype. Use whenever the designer asks about 'my run', 'how did I do', or how they compare to the bots.",
+    inputSchema: z.object({
+      experimentId: z.string().optional().describe("swarm experiment to compare against; omit for most recent"),
+      variant: z.string().optional(),
+    }),
+    execute: async ({ experimentId, variant }) => {
+      const human = await latestHumanRun();
+      if (!human) {
+        return { error: "no human run recorded yet — play the level first, then ask again" };
+      }
+      // Never compare the player against their own session — resolve to a
+      // real bot swarm even though human runs share the same tables.
+      const { ref } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
+      if (!ref) return { error: "no swarm experiments to compare against yet" };
+      const v = pickVariant(ref, variant);
+      const room = human.room || "Level1";
+
+      const [cells, counts, trails, nearby] = await Promise.all([
+        heatmap(ref.experimentId, v, room),
+        runCounts(ref.experimentId),
+        runTrails(HUMAN_EXPERIMENT, "baseline", [human.runId]),
+        human.death
+          ? deathsNear(ref.experimentId, v, room, human.death.x, human.death.y)
+          : Promise.resolve(null),
+      ]);
+
+      return {
+        experimentId: ref.experimentId,
+        variant: v,
+        room,
+        tileSize: 16,
+        runs: counts[v] ?? 0,
+        cells,
+        human: {
+          runId: human.runId,
+          survivedMs: human.lastT,
+          coins: human.coins,
+          died: Boolean(human.death),
+        },
+        humanTrail: trails[0] ?? null,
+        nearby,
+      };
+    },
+    toModelOutput: ({ output }) => {
+      const o = output as {
+        error?: string;
+        human?: { survivedMs: number; coins: number; died: boolean };
+        room?: string;
+        nearby?: {
+          radiusTiles: number;
+          byArchetype: Array<{ archetype: string; deaths: number; runs: number }>;
+        } | null;
+      };
+      if (o.error) return { type: "text", value: o.error };
+      const h = o.human;
+      const lines = [
+        `Ghost trail rendered over the swarm heatmap.`,
+        `Human run: ${((h?.survivedMs ?? 0) / 1000).toFixed(0)}s survived, ${h?.coins ?? 0} coins, ${h?.died ? "died" : "still alive / left mid-run"}.`,
+      ];
+      const botStats = (o.nearby?.byArchetype ?? []).filter((a) => a.archetype !== "human" && a.runs > 0);
+      if (h?.died && botStats.length > 0) {
+        for (const a of botStats) {
+          const pct = Math.round((a.deaths / a.runs) * 100);
+          lines.push(`- ${a.deaths} of ${a.runs} ${a.archetype} runs (${pct}%) died within ${o.nearby!.radiusTiles} tiles of the same spot`);
+        }
+      } else {
+        // Without these numbers the comparison is unsupported — say so rather
+        // than letting the model infer an alignment it cannot see.
+        lines.push(
+          "NO swarm death comparison is available. Do NOT claim the player died where the bots die — say the comparison isn't available yet.",
+        );
+      }
+      lines.push(
+        "The trail is ALREADY on screen. In at most two sentences tell the player whether they died where the bots die, and which archetype they played like.",
+      );
+      return { type: "text", value: lines.join("\n") };
+    },
+  }),
+
   queryFunnel: tool({
     description:
       "Coin-progression funnel for a variant (windowFunnel over each run's event stream): started → 1 coin → 3 coins → 5 coins. Omit experimentId to use the most recent.",
@@ -283,7 +368,7 @@ const tools = {
       variant: z.string().optional().describe("omit for baseline"),
     }),
     execute: async ({ experimentId, variant }) => {
-      const { ref, known } = await resolveExperiment(experimentId);
+      const { ref, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
       if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
       const v = pickVariant(ref, variant);
       return {
@@ -357,6 +442,7 @@ How to answer:
 - For a what-if ("what if I move X?"), translate it into a mutation spec, state a one-sentence hypothesis, then call runSwarm — the designer approves it before compute is spent. Afterwards, call queryDelta and give a verdict: did the change do what they wanted? Break down by archetype when the aggregate hides a difference.
 - Death rates near 40-55% on baseline Level1 are normal; treat ±8 percentage points on 18+ paired runs as signal, less as noise (say so).
 - Coordinates: objects use px; tiles are 16px. Level1 is 50x38 tiles: an upper room (safe), a corridor chokepoint around tiles (20-24, 11-15), and a pillared lower room where most enemies live.
+- A human can play the level in the browser; their telemetry lands in the same table as the swarm. For "how did I do", "my run", or any human-vs-bot question, call compareMyRun — it renders their path as a ghost trail over the swarm heatmap.
 - The "nightly" experiment is the regression watch: fixed-seed canary swarms, one variant per date. For "did the level get harder?" check watchReports, then render the visual diff via queryDelta(experimentId "nightly", variantA=<earlier date>, variantB=<later date>).
 - End EVERY answer by calling suggestFollowUps with 2-3 short next questions a level designer would naturally ask, building on what was just shown (a drill-down, a what-if mutation, a comparison or funnel). Phrase them as the designer would type them. Never mention the suggestions in prose — the UI renders them as chips.
 - suggestFollowUps is the LAST thing you do in a turn. Write your verdict sentence BEFORE it, then call it and stop. Never write any text after it — a second summary paragraph is a bug.`;

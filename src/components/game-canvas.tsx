@@ -8,7 +8,8 @@ export function GameCanvas({
   onEvent,
 }: {
   level?: string;
-  onEvent?: (event: BrowserGameEvent) => void;
+  /** Receives the run id too: each game instance is its own run. */
+  onEvent?: (event: BrowserGameEvent, runId: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +22,10 @@ export function GameCanvas({
     if (!host) return;
     let disposed = false;
     let handle: { destroy(): void } | null = null;
+    // One run id per game instance. Tying it to the component mount instead
+    // would let a hot-reloaded or double-mounted game append its samples to a
+    // previous run, producing a "trail" that is really several paths at once.
+    const runId = `human-${crypto.randomUUID()}`;
 
     // Phaser touches window at import time, so it can only load client-side.
     import("../game/browser-game")
@@ -28,7 +33,7 @@ export function GameCanvas({
         startBrowserGame({
           parent: host,
           level,
-          onEvent: (e) => onEventRef.current?.(e),
+          onEvent: (e) => onEventRef.current?.(e, runId),
         }),
       )
       .then((h) => {

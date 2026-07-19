@@ -249,7 +249,7 @@ export function Copilot({
                       </p>
                     );
                   }
-                  if (part.type === "tool-queryHeatmap") {
+                  if (part.type === "tool-queryHeatmap" || part.type === "tool-compareMyRun") {
                     return (
                       <HeatmapCard
                         key={i}
