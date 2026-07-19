@@ -19,6 +19,26 @@ const SUGGESTIONS = [
   "Show me the progression funnel for the last experiment",
 ];
 
+function SuggestionButton({
+  text,
+  onPick,
+  disabled,
+}: {
+  text: string;
+  onPick: (text: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={() => onPick(text)}
+      disabled={disabled}
+      className="block w-full rounded-md border border-zinc-700 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+    >
+      {text}
+    </button>
+  );
+}
+
 export function Chat() {
   const transport = useTriggerChatTransport<typeof playtestChat>({
     task: "playtest-chat",
@@ -46,20 +66,15 @@ export function Chat() {
           <div className="space-y-2 pt-8 text-center">
             <p className="text-zinc-400">Ask about your level, or try:</p>
             {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => sendMessage({ text: s })}
-                className="block w-full rounded-md border border-zinc-700 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"
-              >
-                {s}
-              </button>
+              <SuggestionButton key={s} text={s} onPick={(t) => sendMessage({ text: t })} />
             ))}
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg, msgIndex) => (
           <div key={msg.id} className={msg.role === "user" ? "text-right" : ""}>
             {msg.parts.map((part, i) => {
+              const isLatestMessage = msgIndex === messages.length - 1;
               if (part.type === "text") {
                 return (
                   <p
@@ -111,6 +126,24 @@ export function Chat() {
                           Deny
                         </button>
                       </div>
+                    </div>
+                  );
+                }
+
+                if (part.type === "tool-suggestFollowUps") {
+                  const suggestions = (toolPart.input as { suggestions?: string[] } | undefined)
+                    ?.suggestions;
+                  if (!isLatestMessage || !suggestions?.length) return null;
+                  return (
+                    <div key={i} className="mt-3 space-y-2">
+                      {suggestions.map((s) => (
+                        <SuggestionButton
+                          key={s}
+                          text={s}
+                          disabled={busy}
+                          onPick={(t) => sendMessage({ text: t })}
+                        />
+                      ))}
                     </div>
                   );
                 }

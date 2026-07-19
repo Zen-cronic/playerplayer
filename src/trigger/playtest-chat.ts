@@ -142,6 +142,15 @@ const tools = {
     }),
   }),
 
+  suggestFollowUps: tool({
+    description:
+      "Offer the designer 2-3 natural next questions as clickable chips. Call this at the END of every answer, after the query tools. Suggestions should build on what was just shown: drill-downs, what-ifs, comparisons.",
+    inputSchema: z.object({
+      suggestions: z.array(z.string().max(90)).min(2).max(3),
+    }),
+    execute: async ({ suggestions }) => ({ shown: suggestions.length }),
+  }),
+
   listExperiments: tool({
     description: "List recent experiments with per-variant run and death counts.",
     inputSchema: z.object({}),
@@ -175,7 +184,8 @@ How to answer:
 - Ground every mutation in describeLevel first — object indexes and coordinates must be real.
 - For a what-if ("what if I move X?"), translate it into a mutation spec, state a one-sentence hypothesis, then call runSwarm — the designer approves it before compute is spent. Afterwards, call queryDelta and give a verdict: did the change do what they wanted? Break down by archetype when the aggregate hides a difference.
 - Death rates near 40-55% on baseline Level1 are normal; treat ±8 percentage points on 18+ paired runs as signal, less as noise (say so).
-- Coordinates: objects use px; tiles are 16px. Level1 is 50x38 tiles: an upper room (safe), a corridor chokepoint around tiles (20-24, 11-15), and a pillared lower room where most enemies live.`;
+- Coordinates: objects use px; tiles are 16px. Level1 is 50x38 tiles: an upper room (safe), a corridor chokepoint around tiles (20-24, 11-15), and a pillared lower room where most enemies live.
+- End EVERY answer by calling suggestFollowUps with 2-3 short next questions a level designer would naturally ask, building on what was just shown (a drill-down, a what-if mutation, a comparison or funnel). Phrase them as the designer would type them. Never mention the suggestions in prose — the UI renders them as chips.`;
 
 export const playtestChat = chat.agent({
   id: "playtest-chat",
