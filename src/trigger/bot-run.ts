@@ -1,7 +1,10 @@
+import os from "node:os";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { task } from "@trigger.dev/sdk";
 import { runBot } from "../game/harness";
 import { insertRunTelemetry } from "../lib/ingest";
+import { applyMutations, type Mutation } from "../game/mutate";
 import type { BotArchetype } from "../game/bot";
 
 export interface BotRunPayload {
@@ -10,6 +13,8 @@ export interface BotRunPayload {
   seed: string;
   archetype?: BotArchetype;
   level?: string;
+  /** Mutations travel in the payload — task workers share no filesystem, so each run applies them locally. */
+  mutations?: Mutation[];
   timeoutSimMs?: number;
 }
 
@@ -18,10 +23,21 @@ export const botRun = task({
   id: "bot-run",
   machine: "small-1x",
   run: async (payload: BotRunPayload) => {
+    const level = payload.level ?? "Level1";
+    let mapPath: string | undefined;
+    if (payload.mutations?.length) {
+      mapPath = applyMutations(
+        level,
+        payload.mutations,
+        path.join(os.tmpdir(), `playtest-${payload.experimentId}-${payload.variant}`, `${level.toLowerCase()}.json`),
+      );
+    }
+
     const result = await runBot({
       seed: payload.seed,
       archetype: payload.archetype,
-      level: payload.level,
+      level,
+      mapPath,
       timeoutSimMs: payload.timeoutSimMs,
     });
 
