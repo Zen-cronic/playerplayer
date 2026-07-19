@@ -6,9 +6,10 @@ export default defineConfig({
   dirs: ["./src/trigger"],
   maxDuration: 3600,
   build: {
-    // canvas is a native module (required by phaser-on-nodejs); the game
-    // assets must ship alongside the bundled bot-run task.
-    external: ["canvas"],
+    // canvas is native; jsdom resolves worker files at runtime — neither
+    // survives bundling. Phaser + the shim ride along unbundled with them.
+    // The game assets must ship alongside the bundled bot-run task.
+    external: ["canvas", "jsdom", "phaser", "@geckos.io/phaser-on-nodejs"],
     extensions: [additionalFiles({ files: ["vendor/tilemap-pack/assets/**"] })],
   },
   retries: {
