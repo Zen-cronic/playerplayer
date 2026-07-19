@@ -1,23 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { runBot } from "./harness";
-
-function arg(name: string, fallback: string): string {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
-
-// Minimal .env loader for this standalone CLI (Next.js and trigger dev load
-// .env themselves; this script runs outside both).
-function loadDotEnv(): void {
-  const file = path.resolve(process.cwd(), ".env");
-  if (!fs.existsSync(file)) return;
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-  }
-}
+import { loadDotEnv, cliArg as arg } from "../lib/env";
 
 async function main() {
   const runs = Number(arg("runs", "1"));

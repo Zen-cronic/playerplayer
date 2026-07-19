@@ -1,20 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { heatmap, progressionFunnel, runCounts } from "../lib/queries";
-
-function arg(name: string, fallback: string): string {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
-
-function loadDotEnv(): void {
-  const file = path.resolve(process.cwd(), ".env");
-  if (!fs.existsSync(file)) return;
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-  }
-}
+import { heatmap, heatmapDelta, progressionFunnel, runCounts } from "../lib/queries";
+import { loadDotEnv, cliArg as arg } from "../lib/env";
 
 interface TiledMap {
   width: number;
@@ -71,6 +58,52 @@ async function main() {
   const tiles = decodeTileData(tileLayer);
   const walls = collideGids(map);
 
+  const wallChar = (x: number, y: number) => (walls.has(tiles[y * map.width + x]) ? "#" : " ");
+  const compare = arg("compare", "");
+
+  if (compare) {
+    // Delta view: per-run death-rate change per cell, mutated (B) vs baseline (A).
+    const counts = await runCounts(experimentId);
+    const runsA = counts[variant] ?? 1;
+    const runsB = counts[compare] ?? 1;
+    const cells = await heatmapDelta(experimentId, variant, compare, room);
+    const grid = new Map<string, number>();
+    let maxAbs = 0;
+    for (const c of cells) {
+      const d = c.deathsB / runsB - c.deathsA / runsA;
+      if (d !== 0) {
+        grid.set(`${c.gx},${c.gy}`, d);
+        maxAbs = Math.max(maxAbs, Math.abs(d));
+      }
+    }
+    const RED = "\x1b[31m";
+    const GREEN = "\x1b[32m";
+    const RESET = "\x1b[0m";
+    const lines: string[] = [];
+    for (let y = 0; y < map.height; y++) {
+      let line = "";
+      for (let x = 0; x < map.width; x++) {
+        const d = grid.get(`${x},${y}`) ?? 0;
+        if (d > 0) line += `${RED}${Math.abs(d) > maxAbs / 2 ? "█" : "▲"}${RESET}`;
+        else if (d < 0) line += `${GREEN}${Math.abs(d) > maxAbs / 2 ? "█" : "▽"}${RESET}`;
+        else line += wallChar(x, y);
+      }
+      lines.push(line);
+    }
+    const totalA = cells.reduce((s, c) => s + c.deathsA, 0);
+    const totalB = cells.reduce((s, c) => s + c.deathsB, 0);
+    console.log(
+      `death-rate DELTA — ${compare} vs ${variant} — experiment=${experimentId} room=${room}\n` +
+        `${RED}▲/█ more deaths${RESET}  ${GREEN}▽/█ fewer deaths${RESET}\n`,
+    );
+    console.log(lines.join("\n"));
+    console.log(
+      `\ntotals: ${variant}=${totalA} deaths/${runsA} runs (${((totalA / runsA) * 100).toFixed(0)}%) → ` +
+        `${compare}=${totalB} deaths/${runsB} runs (${((totalB / runsB) * 100).toFixed(0)}%)`,
+    );
+    process.exit(0);
+  }
+
   const cells = await heatmap(experimentId, variant, room);
   const grid = new Map<string, number>();
   let max = 0;
@@ -91,7 +124,7 @@ async function main() {
       if (v > 0) {
         line += RAMP[Math.min(RAMP.length - 1, Math.floor((v / max) * (RAMP.length - 1)))];
       } else {
-        line += walls.has(tiles[y * map.width + x]) ? "#" : " ";
+        line += wallChar(x, y);
       }
     }
     lines.push(line);

@@ -21,6 +21,8 @@ export interface RunOptions {
   seed: string;
   archetype?: BotArchetype;
   level?: string;
+  /** Absolute path to a (possibly mutated) map JSON for `level`; defaults to the vendored map. */
+  mapPath?: string;
   timeoutSimMs?: number;
   sampleIntervalMs?: number;
 }
@@ -55,6 +57,7 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
     seed,
     archetype = "explorer",
     level = "Level1",
+    mapPath,
     timeoutSimMs = 90_000,
     sampleIntervalMs = 100,
   } = opts;
@@ -155,7 +158,12 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
         );
         this.load.image("tiles", path.join(VENDOR, "assets/tiles/tiles.png"));
         for (let i = 1; i <= 5; i++) {
-          this.load.tilemapTiledJSON(`Level${i}Map`, path.join(VENDOR, `assets/maps/level${i}.json`));
+          const key = `Level${i}Map`;
+          const file =
+            mapPath && key === `${level}Map`
+              ? mapPath
+              : path.join(VENDOR, `assets/maps/level${i}.json`);
+          this.load.tilemapTiledJSON(key, file);
         }
       }
       create() {
