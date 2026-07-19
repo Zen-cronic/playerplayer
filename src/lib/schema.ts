@@ -41,8 +41,42 @@ const BOT_RUNS_DDL = `
   ORDER BY (experiment_id, variant, run_id)
 `;
 
+// Insert-time spatial aggregation: the heatmap grid stays live under the
+// swarm firehose without rescanning bot_events. Cell = one 16px map tile.
+const HEATMAP_CELLS_DDL = `
+  CREATE TABLE IF NOT EXISTS heatmap_cells (
+    experiment_id String,
+    variant LowCardinality(String),
+    room LowCardinality(String),
+    gx Int32,
+    gy Int32,
+    visits SimpleAggregateFunction(sum, UInt64),
+    deaths SimpleAggregateFunction(sum, UInt64),
+    damage SimpleAggregateFunction(sum, UInt64),
+    coin_pickups SimpleAggregateFunction(sum, UInt64)
+  )
+  ENGINE = AggregatingMergeTree
+  ORDER BY (experiment_id, variant, room, gx, gy)
+`;
+
+const HEATMAP_CELLS_MV_DDL = `
+  CREATE MATERIALIZED VIEW IF NOT EXISTS heatmap_cells_mv TO heatmap_cells AS
+  SELECT
+    experiment_id,
+    variant,
+    room,
+    toInt32(floor(x / 16)) AS gx,
+    toInt32(floor(y / 16)) AS gy,
+    sumSimpleState(toUInt64(type = 'pos')) AS visits,
+    sumSimpleState(toUInt64(type = 'death')) AS deaths,
+    sumSimpleState(toUInt64(type = 'damage')) AS damage,
+    sumSimpleState(toUInt64(type = 'pickup_coin')) AS coin_pickups
+  FROM bot_events
+  GROUP BY experiment_id, variant, room, gx, gy
+`;
+
 export async function ensureSchema(ch: ClickHouseClient): Promise<void> {
-  for (const ddl of [BOT_EVENTS_DDL, BOT_RUNS_DDL]) {
+  for (const ddl of [BOT_EVENTS_DDL, BOT_RUNS_DDL, HEATMAP_CELLS_DDL, HEATMAP_CELLS_MV_DDL]) {
     await ch.command({
       query: ddl,
       clickhouse_settings: { wait_end_of_query: 1 },
