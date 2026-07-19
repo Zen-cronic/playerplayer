@@ -19,6 +19,7 @@
     "dev:trigger": "trigger dev",
     "build": "next build",
     "start": "next start",
+    "bot": "tsx src/game/run-headless.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

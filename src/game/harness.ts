@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Phaser, simNow } from "./headless-context";
@@ -5,10 +6,16 @@ import { TelemetryBuffer } from "./telemetry";
 import { ExplorerBot, type BotArchetype } from "./bot";
 import Level from "../../vendor/tilemap-pack/src/scenes/Level.js";
 
-const VENDOR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../vendor/tilemap-pack",
-);
+// Assets resolve from cwd first (matches both `trigger dev` and the deployed
+// bundle, where additionalFiles copies vendor/ relative to the bundle root),
+// falling back to source-relative for other entry points.
+function resolveVendor(): string {
+  const fromCwd = path.resolve(process.cwd(), "vendor/tilemap-pack");
+  if (fs.existsSync(path.join(fromCwd, "assets/atlas.json"))) return fromCwd;
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../vendor/tilemap-pack");
+}
+
+const VENDOR = resolveVendor();
 
 export interface RunOptions {
   seed: string;

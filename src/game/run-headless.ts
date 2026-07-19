@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { runBot } from "./harness";
 
 function arg(name: string, fallback: string): string {
@@ -5,17 +8,42 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
+// Minimal .env loader for this standalone CLI (Next.js and trigger dev load
+// .env themselves; this script runs outside both).
+function loadDotEnv(): void {
+  const file = path.resolve(process.cwd(), ".env");
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+}
+
 async function main() {
   const runs = Number(arg("runs", "1"));
   const seedBase = arg("seed", "spike");
+  const insert = process.argv.includes("--insert");
+  const experimentId = arg("experiment", "local-spike");
+  const variant = arg("variant", "baseline");
+
+  if (insert) loadDotEnv();
 
   let totalSim = 0;
   let totalWall = 0;
+  let totalRows = 0;
 
   for (let i = 0; i < runs; i++) {
     const result = await runBot({ seed: `${seedBase}-${i}` });
     totalSim += result.simMs;
     totalWall += result.wallMs;
+
+    if (insert) {
+      const { insertRunTelemetry } = await import("../lib/ingest");
+      const runId = randomUUID();
+      const { eventRows } = await insertRunTelemetry({ experimentId, variant, runId }, result);
+      totalRows += eventRows + 1;
+      console.log(`    → inserted ${eventRows} bot_events rows + 1 bot_runs row (run_id ${runId})`);
+    }
     const counts = result.events.reduce<Record<string, number>>((acc, e) => {
       acc[e.type] = (acc[e.type] ?? 0) + 1;
       return acc;
@@ -41,7 +69,8 @@ async function main() {
 
   console.log(
     `\n${runs} run(s): total sim ${(totalSim / 1000).toFixed(1)}s in wall ${(totalWall / 1000).toFixed(1)}s ` +
-      `→ ${(totalSim / Math.max(totalWall, 1)).toFixed(1)}x realtime`,
+      `→ ${(totalSim / Math.max(totalWall, 1)).toFixed(1)}x realtime` +
+      (insert ? ` | ${totalRows} rows inserted into ClickHouse` : ""),
   );
   process.exit(0);
 }
