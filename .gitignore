@@ -25,3 +25,6 @@ test-results/
 *.log
 *.tsbuildinfo
 .DS_Store
+
+# mirrored from vendor/tilemap-pack/assets by scripts/sync-game-assets.mjs
+/public/game

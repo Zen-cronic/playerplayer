@@ -15,8 +15,10 @@
     "node": ">=20"
   },
   "scripts": {
+    "predev": "node scripts/sync-game-assets.mjs",
     "dev": "next dev",
     "dev:trigger": "trigger dev",
+    "prebuild": "node scripts/sync-game-assets.mjs",
     "build": "next build",
     "start": "next start",
     "bot": "tsx src/game/run-headless.ts",
