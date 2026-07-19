@@ -3,12 +3,14 @@
 import { useState, useMemo, useTransition } from "react";
 import { LevelCanvas, type CanvasTrail } from "./level-canvas";
 import { fetchCulpritRuns } from "../app/actions";
+import { Provenance } from "./provenance";
 
 export interface HeatmapOutput {
   experimentId: string;
   variant: string;
   room: string;
   runs: number;
+  queryMs?: number;
   cells: Array<{
     gx: number;
     gy: number;
@@ -119,6 +121,12 @@ export function HeatmapCard({ output }: { output: HeatmapOutput }) {
       ) : (
         pending && <p className="mt-2 text-xs text-zinc-500">loading runs…</p>
       )}
+      <Provenance
+        runs={output.runs}
+        cells={output.cells.length}
+        queryMs={output.queryMs}
+        source="heatmap_cells (AggregatingMergeTree MV)"
+      />
       <span className="sr-only">{summary}</span>
     </figure>
   );

@@ -3,6 +3,7 @@
 import { auth } from "@trigger.dev/sdk";
 import { chat } from "@trigger.dev/sdk/ai";
 import { runsAtCell, runTrails, type CulpritRun, type RunTrail } from "../lib/queries";
+import { getClickHouse } from "../lib/clickhouse";
 
 // Creates the Session + first run; idempotent on (env, chatId).
 export const startChatSession = chat.createStartSessionAction("playtest-chat");
@@ -14,6 +15,33 @@ export async function mintChatAccessToken(chatId: string) {
     scopes: { read: { sessions: chatId }, write: { sessions: chatId } },
     expirationTime: "1h",
   });
+}
+
+// Judges should be able to see the stack is live rather than take our word for
+// it. Real ping, real row count — never a decorative badge. The host is
+// deliberately not returned: this UI gets recorded and shared.
+export async function fetchStackHealth(): Promise<{
+  ok: boolean;
+  events: number;
+  runs: number;
+  pingMs: number;
+}> {
+  const started = Date.now();
+  try {
+    const rs = await getClickHouse().query({
+      query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM bot_events",
+      format: "JSONEachRow",
+    });
+    const [row] = await rs.json<{ events: string; runs: string }>();
+    return {
+      ok: true,
+      events: Number(row?.events ?? 0),
+      runs: Number(row?.runs ?? 0),
+      pingMs: Date.now() - started,
+    };
+  } catch {
+    return { ok: false, events: 0, runs: 0, pingMs: Date.now() - started };
+  }
 }
 
 // Clicking a hotspot is a UI gesture, not a question — it reads ClickHouse

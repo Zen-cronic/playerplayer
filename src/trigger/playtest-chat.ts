@@ -98,6 +98,7 @@ const tools = {
       room: z.string().default("Level1"),
     }),
     execute: async ({ experimentId, variant, room }) => {
+      const started = Date.now();
       const { ref, fellBack, known } = await resolveExperiment(experimentId);
       if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
       const v = pickVariant(ref, variant);
@@ -108,6 +109,7 @@ const tools = {
         room,
         tileSize: 16,
         runs: counts[v] ?? 0,
+        queryMs: Date.now() - started,
         cells,
         ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
       };
@@ -124,6 +126,7 @@ const tools = {
       room: z.string().default("Level1"),
     }),
     execute: async ({ experimentId, variantA, variantB, room }) => {
+      const started = Date.now();
       const { ref, fellBack, known } = await resolveExperiment(experimentId);
       if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
       const a = pickVariant(ref, variantA);
@@ -147,6 +150,7 @@ const tools = {
         tileSize: 16,
         runsA,
         runsB,
+        queryMs: Date.now() - started,
         totals: { deathsA, deathsB, deathRateA: runsA ? deathsA / runsA : 0, deathRateB: runsB ? deathsB / runsB : 0 },
         cells,
         ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),

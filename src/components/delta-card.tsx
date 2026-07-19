@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { LevelCanvas } from "./level-canvas";
+import { Provenance } from "./provenance";
 
 export interface DeltaOutput {
   experimentId: string;
@@ -10,6 +11,7 @@ export interface DeltaOutput {
   room: string;
   runsA: number;
   runsB: number;
+  queryMs?: number;
   totals: { deathsA: number; deathsB: number; deathRateA: number; deathRateB: number };
   cells: Array<{
     gx: number;
@@ -77,6 +79,12 @@ export function DeltaCard({ output }: { output: DeltaOutput }) {
         <span className="text-red-400">red</span> = more deaths after change ·{" "}
         <span className="text-emerald-400">green</span> = fewer deaths
       </div>
+      <Provenance
+        runs={output.runsA + output.runsB}
+        cells={output.cells.length}
+        queryMs={output.queryMs}
+        source="single-pass sumIf delta, no join"
+      />
       <span className="sr-only">{summary}</span>
     </figure>
   );

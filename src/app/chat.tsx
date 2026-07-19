@@ -6,7 +6,7 @@ import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
 import type { InferChatUIMessage } from "@trigger.dev/sdk/chat/react";
 import type { playtestChat } from "../trigger/playtest-chat";
-import { mintChatAccessToken, startChatSession } from "./actions";
+import { fetchStackHealth, mintChatAccessToken, startChatSession } from "./actions";
 import { HeatmapCard, type HeatmapOutput } from "../components/heatmap-card";
 import { DeltaCard, type DeltaOutput } from "../components/delta-card";
 import { FunnelCard, type FunnelOutput } from "../components/funnel-card";
@@ -37,6 +37,17 @@ function describeMutation(m: SwarmMutation): string {
     return `move ${m.objectType} #${m.index} to tile (${Math.floor(m.toX / 16)}, ${Math.floor(m.toY / 16)})`;
   }
   return `copy tile (${m.from.x}, ${m.from.y}) to (${m.to.x}, ${m.to.y})`;
+}
+
+function StatusChip({ live, label }: { live: boolean; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-2 py-0.5 text-zinc-400">
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-400" : "bg-zinc-600"}`}
+      />
+      {label}
+    </span>
+  );
 }
 
 function SuggestionButton({
@@ -74,6 +85,19 @@ export function Chat() {
 
   const busy = status === "streaming" || status === "submitted";
 
+  // Re-checked after every turn so the counts visibly climb as swarms land.
+  const [health, setHealth] = useState<Awaited<ReturnType<typeof fetchStackHealth>> | null>(null);
+  useEffect(() => {
+    if (busy) return;
+    let cancelled = false;
+    fetchStackHealth().then((h) => {
+      if (!cancelled) setHealth(h);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [busy]);
+
   // Stick to the newest card, but never yank the view away from someone who
   // scrolled up to inspect a heatmap mid-stream.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -85,9 +109,29 @@ export function Chat() {
 
   return (
     <div className="mx-auto flex h-screen max-w-3xl flex-col p-4">
-      <header className="mb-3 flex items-baseline justify-between">
-        <h1 className="text-xl font-bold tracking-tight">Playtest Swarm</h1>
-        <p className="text-sm text-zinc-500">the agent that re-runs your level to prove the fix</p>
+      <header className="mb-3">
+        <div className="flex items-baseline justify-between">
+          <h1 className="text-xl font-bold tracking-tight">Playtest Swarm</h1>
+          <p className="text-sm text-zinc-500">the agent that re-runs your level to prove the fix</p>
+        </div>
+        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+          <StatusChip
+            live={busy}
+            label={
+              busy
+                ? "Trigger.dev agent · running"
+                : "Trigger.dev agent · chat.agent() + task fan-out"
+            }
+          />
+          <StatusChip
+            live={health?.ok ?? false}
+            label={
+              health
+                ? `ClickHouse Cloud · ${health.events.toLocaleString()} events from ${health.runs.toLocaleString()} runs · ${health.pingMs}ms`
+                : "ClickHouse Cloud · connecting…"
+            }
+          />
+        </div>
       </header>
 
       <div
