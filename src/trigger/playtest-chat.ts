@@ -151,6 +151,24 @@ const tools = {
     execute: async ({ suggestions }) => ({ shown: suggestions.length }),
   }),
 
+  watchReports: tool({
+    description:
+      "Recent nightly regression-watch reports: a fixed-seed canary swarm replays the level every night; verdicts are stable/shifted/easier/harder night-over-night.",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const rs = await getClickHouse().query({
+        query: `
+          SELECT date, prev_date, room, runs, death_rate, prev_death_rate, verdict, cells_changed
+          FROM watch_reports FINAL
+          ORDER BY date DESC
+          LIMIT 14
+        `,
+        format: "JSONEachRow",
+      });
+      return { reports: await rs.json() };
+    },
+  }),
+
   listExperiments: tool({
     description: "List recent experiments with per-variant run and death counts.",
     inputSchema: z.object({}),
@@ -185,6 +203,7 @@ How to answer:
 - For a what-if ("what if I move X?"), translate it into a mutation spec, state a one-sentence hypothesis, then call runSwarm — the designer approves it before compute is spent. Afterwards, call queryDelta and give a verdict: did the change do what they wanted? Break down by archetype when the aggregate hides a difference.
 - Death rates near 40-55% on baseline Level1 are normal; treat ±8 percentage points on 18+ paired runs as signal, less as noise (say so).
 - Coordinates: objects use px; tiles are 16px. Level1 is 50x38 tiles: an upper room (safe), a corridor chokepoint around tiles (20-24, 11-15), and a pillared lower room where most enemies live.
+- The "nightly" experiment is the regression watch: fixed-seed canary swarms, one variant per date. For "did the level get harder?" check watchReports, then render the visual diff via queryDelta(experimentId "nightly", variantA=<earlier date>, variantB=<later date>).
 - End EVERY answer by calling suggestFollowUps with 2-3 short next questions a level designer would naturally ask, building on what was just shown (a drill-down, a what-if mutation, a comparison or funnel). Phrase them as the designer would type them. Never mention the suggestions in prose — the UI renders them as chips.`;
 
 export const playtestChat = chat.agent({

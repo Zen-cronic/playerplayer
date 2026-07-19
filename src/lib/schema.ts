@@ -75,8 +75,26 @@ const HEATMAP_CELLS_MV_DDL = `
   GROUP BY experiment_id, variant, room, gx, gy
 `;
 
+// One row per nightly regression sweep; the chat agent surfaces these and
+// queryDelta("nightly", prev_date, date) renders the visual diff.
+const WATCH_REPORTS_DDL = `
+  CREATE TABLE IF NOT EXISTS watch_reports (
+    date Date,
+    prev_date Date,
+    room LowCardinality(String),
+    runs UInt16,
+    death_rate Float32,
+    prev_death_rate Float32,
+    verdict LowCardinality(String),
+    cells_changed UInt32,
+    inserted_at DateTime64(3) DEFAULT now64(3)
+  )
+  ENGINE = ReplacingMergeTree(inserted_at)
+  ORDER BY (room, date)
+`;
+
 export async function ensureSchema(ch: ClickHouseClient): Promise<void> {
-  for (const ddl of [BOT_EVENTS_DDL, BOT_RUNS_DDL, HEATMAP_CELLS_DDL, HEATMAP_CELLS_MV_DDL]) {
+  for (const ddl of [BOT_EVENTS_DDL, BOT_RUNS_DDL, HEATMAP_CELLS_DDL, HEATMAP_CELLS_MV_DDL, WATCH_REPORTS_DDL]) {
     await ch.command({
       query: ddl,
       clickhouse_settings: { wait_end_of_query: 1 },
