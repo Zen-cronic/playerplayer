@@ -1,10 +1,17 @@
 import fs from "node:fs";
 import { chat } from "@trigger.dev/sdk/ai";
-import { streamText, stepCountIs, tool } from "ai";
+import { streamText, stepCountIs, hasToolCall, tool } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { runExperiment } from "./run-experiment";
-import { heatmap, heatmapDelta, progressionFunnel, runCounts } from "../lib/queries";
+import {
+  heatmap,
+  heatmapDelta,
+  pickVariant,
+  progressionFunnel,
+  resolveExperiment,
+  runCounts,
+} from "../lib/queries";
 import { getClickHouse } from "../lib/clickhouse";
 import { vendorMapPath, type Mutation } from "../game/mutate";
 import { ARCHETYPES } from "../game/bot";
@@ -84,62 +91,86 @@ const tools = {
 
   queryHeatmap: tool({
     description:
-      "Per-cell spatial aggregates (16px grid) for one variant of an experiment: visits, deaths, damage, coin pickups. The UI renders these as a heatmap overlay — always call this instead of describing locations in prose.",
+      "Per-cell spatial aggregates (16px grid) for one variant of an experiment: visits, deaths, damage, coin pickups. The UI renders these as a heatmap overlay — always call this instead of describing locations in prose. Omit experimentId to use the most recent experiment; never invent one.",
     inputSchema: z.object({
-      experimentId: z.string(),
-      variant: z.string().default("baseline"),
+      experimentId: z.string().optional().describe("omit for the most recent experiment"),
+      variant: z.string().optional().describe("omit for baseline"),
       room: z.string().default("Level1"),
     }),
     execute: async ({ experimentId, variant, room }) => {
-      const cells = await heatmap(experimentId, variant, room);
-      const counts = await runCounts(experimentId);
-      return { experimentId, variant, room, tileSize: 16, runs: counts[variant] ?? 0, cells };
+      const { ref, fellBack, known } = await resolveExperiment(experimentId);
+      if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
+      const v = pickVariant(ref, variant);
+      const [cells, counts] = await Promise.all([heatmap(ref.experimentId, v, room), runCounts(ref.experimentId)]);
+      return {
+        experimentId: ref.experimentId,
+        variant: v,
+        room,
+        tileSize: 16,
+        runs: counts[v] ?? 0,
+        cells,
+        ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
+      };
     },
   }),
 
   queryDelta: tool({
     description:
-      "Before/after comparison between two variants of an experiment: per-cell death/visit counts for both, plus run counts for normalization. The UI renders the delta heatmap — the signature answer to any what-if.",
+      "Before/after comparison between two variants of an experiment: per-cell death/visit counts for both, plus run counts for normalization. The UI renders the delta heatmap — the signature answer to any what-if. Omit experimentId to use the most recent.",
     inputSchema: z.object({
-      experimentId: z.string(),
-      variantA: z.string().default("baseline"),
-      variantB: z.string().default("mutated"),
+      experimentId: z.string().optional().describe("omit for the most recent experiment"),
+      variantA: z.string().optional().describe("the before variant; omit for baseline"),
+      variantB: z.string().optional().describe("the after variant; omit for the other variant"),
       room: z.string().default("Level1"),
     }),
     execute: async ({ experimentId, variantA, variantB, room }) => {
+      const { ref, fellBack, known } = await resolveExperiment(experimentId);
+      if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
+      const a = pickVariant(ref, variantA);
+      const b =
+        variantB && ref.variants.includes(variantB)
+          ? variantB
+          : (ref.variants.find((x) => x !== a) ?? a);
       const [cells, counts] = await Promise.all([
-        heatmapDelta(experimentId, variantA, variantB, room),
-        runCounts(experimentId),
+        heatmapDelta(ref.experimentId, a, b, room),
+        runCounts(ref.experimentId),
       ]);
-      const runsA = counts[variantA] ?? 0;
-      const runsB = counts[variantB] ?? 0;
+      const runsA = counts[a] ?? 0;
+      const runsB = counts[b] ?? 0;
       const deathsA = cells.reduce((s, c) => s + c.deathsA, 0);
       const deathsB = cells.reduce((s, c) => s + c.deathsB, 0);
       return {
-        experimentId,
-        variantA,
-        variantB,
+        experimentId: ref.experimentId,
+        variantA: a,
+        variantB: b,
         room,
         tileSize: 16,
         runsA,
         runsB,
         totals: { deathsA, deathsB, deathRateA: runsA ? deathsA / runsA : 0, deathRateB: runsB ? deathsB / runsB : 0 },
         cells,
+        ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
       };
     },
   }),
 
   queryFunnel: tool({
-    description: "Coin-progression funnel for a variant (windowFunnel over each run's event stream): started → 1 coin → 3 coins → 5 coins.",
+    description:
+      "Coin-progression funnel for a variant (windowFunnel over each run's event stream): started → 1 coin → 3 coins → 5 coins. Omit experimentId to use the most recent.",
     inputSchema: z.object({
-      experimentId: z.string(),
-      variant: z.string().default("baseline"),
+      experimentId: z.string().optional().describe("omit for the most recent experiment"),
+      variant: z.string().optional().describe("omit for baseline"),
     }),
-    execute: async ({ experimentId, variant }) => ({
-      experimentId,
-      variant,
-      stages: await progressionFunnel(experimentId, variant),
-    }),
+    execute: async ({ experimentId, variant }) => {
+      const { ref, known } = await resolveExperiment(experimentId);
+      if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
+      const v = pickVariant(ref, variant);
+      return {
+        experimentId: ref.experimentId,
+        variant: v,
+        stages: await progressionFunnel(ref.experimentId, v),
+      };
+    },
   }),
 
   suggestFollowUps: tool({
@@ -198,13 +229,16 @@ const SYSTEM_PROMPT = `You are Playtest Swarm — the agent that re-runs a game 
 The bots are three named archetypes with skill noise, run in equal numbers: rusher (beelines for coins), explorer (random walk), cautious (flees enemies within 96px). Runs are seeded: identical seeds play baseline and mutated variants, so comparisons are paired.
 
 How to answer:
-- The visual IS the answer. For "where do runs die?" call queryHeatmap. For any what-if comparison call queryDelta. The UI renders each query tool's output as an interactive heatmap/funnel the designer can hover — so NEVER enumerate cell coordinates, per-cell counts, or long lists in prose. After a query tool returns, reply with ONE verdict sentence plus at most two supporting facts (e.g. "the killzone is just past the chokepoint where bots spill into the pillared room — the upper room is death-free despite the most traffic"). Trust the visual to carry the detail.
+- The visual IS the answer. For "where do runs die?" call queryHeatmap. For any what-if comparison call queryDelta. The UI renders each query tool's output as an interactive heatmap/funnel the designer can hover — the numbers are already on screen, so your prose must never repeat them.
+- HARD LIMITS on the text you write after a query tool returns: TWO SENTENCES (a third sentence is a bug), one paragraph, no lists, no markdown bold. Write ZERO tile coordinates and ZERO per-cell counts — never "(22,17)" or "786 visits". Name places the way a designer talks: "just past the corridor chokepoint", "the pillared lower room", "the upper room". Say what it MEANS and what likely causes it. Good: "Bots clear the chokepoint fine — they die where they spill into the pillared room, so the enemies just inside that doorway are doing the killing, not the corridor." That is a complete answer.
+- Never invent an experiment id. Omit experimentId and the tools use the most recent experiment; call listExperiments only when the designer asks what experiments exist.
 - Ground every mutation in describeLevel first — object indexes and coordinates must be real.
 - For a what-if ("what if I move X?"), translate it into a mutation spec, state a one-sentence hypothesis, then call runSwarm — the designer approves it before compute is spent. Afterwards, call queryDelta and give a verdict: did the change do what they wanted? Break down by archetype when the aggregate hides a difference.
 - Death rates near 40-55% on baseline Level1 are normal; treat ±8 percentage points on 18+ paired runs as signal, less as noise (say so).
 - Coordinates: objects use px; tiles are 16px. Level1 is 50x38 tiles: an upper room (safe), a corridor chokepoint around tiles (20-24, 11-15), and a pillared lower room where most enemies live.
 - The "nightly" experiment is the regression watch: fixed-seed canary swarms, one variant per date. For "did the level get harder?" check watchReports, then render the visual diff via queryDelta(experimentId "nightly", variantA=<earlier date>, variantB=<later date>).
-- End EVERY answer by calling suggestFollowUps with 2-3 short next questions a level designer would naturally ask, building on what was just shown (a drill-down, a what-if mutation, a comparison or funnel). Phrase them as the designer would type them. Never mention the suggestions in prose — the UI renders them as chips.`;
+- End EVERY answer by calling suggestFollowUps with 2-3 short next questions a level designer would naturally ask, building on what was just shown (a drill-down, a what-if mutation, a comparison or funnel). Phrase them as the designer would type them. Never mention the suggestions in prose — the UI renders them as chips.
+- suggestFollowUps is the LAST thing you do in a turn. Write your verdict sentence BEFORE it, then call it and stop. Never write any text after it — a second summary paragraph is a bug.`;
 
 export const playtestChat = chat.agent({
   id: "playtest-chat",
@@ -216,6 +250,9 @@ export const playtestChat = chat.agent({
       system: SYSTEM_PROMPT,
       messages,
       abortSignal: signal,
-      stopWhen: stepCountIs(12),
+      // The chips close the turn. Without this the loop feeds the tool result
+      // back and the model writes a second, redundant summary paragraph —
+      // prompting alone can't beat the step loop's control flow.
+      stopWhen: [stepCountIs(12), hasToolCall("suggestFollowUps")],
     }),
 });

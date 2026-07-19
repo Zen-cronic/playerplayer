@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
@@ -18,6 +18,26 @@ const SUGGESTIONS = [
   "What if I move the slime guarding the corridor away from the door?",
   "Show me the progression funnel for the last experiment",
 ];
+
+type SwarmMutation =
+  | { op: "move_object"; objectType: string; index: number; toX: number; toY: number }
+  | { op: "copy_tile"; from: { x: number; y: number }; to: { x: number; y: number } };
+
+interface SwarmInput {
+  hypothesis?: string;
+  runsPerVariant?: number;
+  room?: string;
+  mutations?: SwarmMutation[];
+}
+
+// The approval card is the moment a designer decides to spend compute — it
+// should read as a change to their level, not as a JSON payload.
+function describeMutation(m: SwarmMutation): string {
+  if (m.op === "move_object") {
+    return `move ${m.objectType} #${m.index} to tile (${Math.floor(m.toX / 16)}, ${Math.floor(m.toY / 16)})`;
+  }
+  return `copy tile (${m.from.x}, ${m.from.y}) to (${m.to.x}, ${m.to.y})`;
+}
 
 function SuggestionButton({
   text,
@@ -54,6 +74,15 @@ export function Chat() {
 
   const busy = status === "streaming" || status === "submitted";
 
+  // Stick to the newest card, but never yank the view away from someone who
+  // scrolled up to inspect a heatmap mid-stream.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [messages, status]);
+
   return (
     <div className="mx-auto flex h-screen max-w-3xl flex-col p-4">
       <header className="mb-3 flex items-baseline justify-between">
@@ -61,7 +90,14 @@ export function Chat() {
         <p className="text-sm text-zinc-500">the agent that re-runs your level to prove the fix</p>
       </header>
 
-      <div className="flex-1 space-y-4 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        }}
+        className="flex-1 space-y-4 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
+      >
         {messages.length === 0 && (
           <div className="space-y-2 pt-8 text-center">
             <p className="text-zinc-400">Ask about your level, or try:</p>
@@ -102,14 +138,30 @@ export function Chat() {
 
                 if (toolPart.state === "approval-requested" && toolPart.approval) {
                   const approvalId = toolPart.approval.id;
+                  const spec = toolPart.input as SwarmInput | undefined;
                   return (
                     <div key={i} className="my-2 rounded-lg border border-amber-600/50 bg-amber-950/30 p-3">
-                      <p className="mb-2 text-sm font-medium text-amber-300">
-                        Approve swarm run? This dispatches bot runs against your level.
+                      <p className="text-sm font-medium text-amber-300">
+                        Run {(spec?.runsPerVariant ?? 18) * 2} bot playthroughs to test this?
                       </p>
-                      <pre className="mb-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-xs text-zinc-400">
-                        {JSON.stringify(toolPart.input, null, 2)}
-                      </pre>
+                      {spec?.hypothesis && (
+                        <p className="mt-1 text-sm text-zinc-300">{spec.hypothesis}</p>
+                      )}
+                      <ul className="my-2 space-y-1 text-xs text-zinc-400">
+                        {(spec?.mutations ?? []).map((m, mi) => (
+                          <li key={mi}>· {describeMutation(m)}</li>
+                        ))}
+                        <li>
+                          · {spec?.runsPerVariant ?? 18} matched-seed runs per variant on{" "}
+                          {spec?.room ?? "Level1"}, baseline vs mutated
+                        </li>
+                      </ul>
+                      <details className="mb-2 text-xs">
+                        <summary className="cursor-pointer text-zinc-600">raw spec</summary>
+                        <pre className="mt-1 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-zinc-500">
+                          {JSON.stringify(toolPart.input, null, 2)}
+                        </pre>
+                      </details>
                       <div className="flex gap-2">
                         <button
                           onClick={() => addToolApprovalResponse({ id: approvalId, approved: true })}
@@ -149,6 +201,19 @@ export function Chat() {
                 }
 
                 if (toolPart.state === "output-available" && toolPart.output != null) {
+                  const out = toolPart.output as { error?: string; cells?: unknown[]; stages?: Array<{ runs: number }> };
+                  // A chart of nothing reads as a broken chart. Degrade to one line.
+                  const empty =
+                    Boolean(out.error) ||
+                    (Array.isArray(out.cells) && out.cells.length === 0) ||
+                    (Array.isArray(out.stages) && out.stages.every((s) => s.runs === 0));
+                  if (empty) {
+                    return (
+                      <p key={i} className="my-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
+                        {out.error ?? "No telemetry for that experiment yet."}
+                      </p>
+                    );
+                  }
                   if (part.type === "tool-queryHeatmap") {
                     return <HeatmapCard key={i} output={toolPart.output as HeatmapOutput} />;
                   }

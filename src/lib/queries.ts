@@ -92,6 +92,59 @@ export async function heatmapDelta(
   }));
 }
 
+export interface ExperimentRef {
+  experimentId: string;
+  variants: string[];
+  runs: number;
+}
+
+export async function listExperimentRefs(limit = 24): Promise<ExperimentRef[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT
+        experiment_id,
+        groupUniqArray(variant) AS variants,
+        count() AS runs
+      FROM bot_runs
+      GROUP BY experiment_id
+      ORDER BY max(inserted_at) DESC
+      LIMIT {limit: UInt8}
+    `,
+    query_params: { limit },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<{ experiment_id: string; variants: string[]; runs: string }>();
+  return rows.map((r) => ({
+    experimentId: r.experiment_id,
+    variants: [...r.variants].sort(),
+    runs: Number(r.runs),
+  }));
+}
+
+// The agent can't know experiment ids before it queries, so asking it to supply
+// one invites invented ids and empty charts. Resolve server-side instead:
+// an unknown or omitted id falls back to the most recent experiment.
+export async function resolveExperiment(requested?: string): Promise<{
+  ref: ExperimentRef | null;
+  fellBack: boolean;
+  known: string[];
+}> {
+  const refs = await listExperimentRefs();
+  const hit = requested ? refs.find((r) => r.experimentId === requested) : undefined;
+  return {
+    ref: hit ?? refs[0] ?? null,
+    fellBack: Boolean(requested) && !hit && refs.length > 0,
+    known: refs.map((r) => r.experimentId),
+  };
+}
+
+export function pickVariant(ref: ExperimentRef, requested?: string): string {
+  if (requested && ref.variants.includes(requested)) return requested;
+  if (ref.variants.includes("baseline")) return "baseline";
+  return ref.variants[0] ?? "baseline";
+}
+
 export async function runCounts(experimentId: string): Promise<Record<string, number>> {
   const ch = getClickHouse();
   const rs = await ch.query({
