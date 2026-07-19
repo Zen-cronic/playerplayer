@@ -11,18 +11,74 @@ const OBJECT_COLORS: Record<string, string> = {
   spawn: "#38bdf8",
 };
 
+export interface CanvasTrail {
+  runId: string;
+  archetype: string;
+  points: Array<{ x: number; y: number }>;
+  death: { x: number; y: number } | null;
+}
+
+const TRAIL_COLORS: Record<string, string> = {
+  rusher: "#fb923c",
+  explorer: "#22d3ee",
+  cautious: "#a3e635",
+};
+
 interface LevelCanvasProps {
   room: string;
   /** cell key "gx,gy" → css fill color (painted over floor, under objects) */
   cellColors: Map<string, string>;
   tooltipFor?: (gx: number, gy: number) => string | null;
+  onCellClick?: (gx: number, gy: number) => void;
+  /** ghost trails drawn over the map, revealed progressively */
+  trails?: CanvasTrail[];
   scale?: number;
 }
 
-export function LevelCanvas({ room, cellColors, tooltipFor, scale = 13 }: LevelCanvasProps) {
+export function LevelCanvas({
+  room,
+  cellColors,
+  tooltipFor,
+  onCellClick,
+  trails,
+  scale = 13,
+}: LevelCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<{ gx: number; gy: number; text: string } | null>(null);
   const geometry = useMemo(() => levelGeometry(room), [room]);
+  // 0..1 sweep used to reveal the trails; resets whenever the trails change.
+  const [progress, setProgress] = useState(1);
+
+  const longest = useMemo(
+    () => Math.max(1, ...(trails ?? []).map((t) => t.points.length)),
+    [trails],
+  );
+
+  useEffect(() => {
+    if (!trails || trails.length === 0) return;
+    setProgress(0);
+    let raf = 0;
+    let done = false;
+    // ~2.5s sweep regardless of run length, so long and short runs replay together.
+    const stepPerFrame = 1 / (2.5 * 60);
+    const tick = () => {
+      if (done) return;
+      setProgress((p) => {
+        const next = p + stepPerFrame;
+        if (next >= 1) {
+          done = true;
+          return 1;
+        }
+        raf = requestAnimationFrame(tick);
+        return next;
+      });
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      done = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [trails]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -45,10 +101,14 @@ export function LevelCanvas({ room, cellColors, tooltipFor, scale = 13 }: LevelC
       }
     }
 
-    for (const [key, color] of cellColors) {
-      const [gx, gy] = key.split(",").map(Number);
-      ctx.fillStyle = color;
-      ctx.fillRect(gx * scale, gy * scale, scale, scale);
+    // Trails replace the aggregate wash — showing both at once is unreadable.
+    const replaying = Boolean(trails && trails.length > 0);
+    if (!replaying) {
+      for (const [key, color] of cellColors) {
+        const [gx, gy] = key.split(",").map(Number);
+        ctx.fillStyle = color;
+        ctx.fillRect(gx * scale, gy * scale, scale, scale);
+      }
     }
 
     for (const o of geometry.objects) {
@@ -60,14 +120,61 @@ export function LevelCanvas({ room, cellColors, tooltipFor, scale = 13 }: LevelC
       ctx.arc(o.tileX * scale + scale / 2, o.tileY * scale + scale / 2, s / 2, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    if (replaying) {
+      const px = (v: number) => (v / 16) * scale;
+      for (const trail of trails!) {
+        const shown = Math.max(2, Math.floor(trail.points.length * progress));
+        const pts = trail.points.slice(0, shown);
+        if (pts.length < 2) continue;
+        ctx.strokeStyle = TRAIL_COLORS[trail.archetype] ?? "#e4e4e7";
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        ctx.moveTo(px(pts[0].x), px(pts[0].y));
+        for (const p of pts.slice(1)) ctx.lineTo(px(p.x), px(p.y));
+        ctx.stroke();
+
+        // Leading dot: where this bot is at the current sweep position.
+        const head = pts[pts.length - 1];
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = TRAIL_COLORS[trail.archetype] ?? "#e4e4e7";
+        ctx.beginPath();
+        ctx.arc(px(head.x), px(head.y), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (trail.death && progress >= 0.999) {
+          ctx.strokeStyle = "#ef4444";
+          ctx.lineWidth = 2;
+          const dx = px(trail.death.x);
+          const dy = px(trail.death.y);
+          ctx.beginPath();
+          ctx.moveTo(dx - 4, dy - 4);
+          ctx.lineTo(dx + 4, dy + 4);
+          ctx.moveTo(dx + 4, dy - 4);
+          ctx.lineTo(dx - 4, dy + 4);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
     void objects;
-  }, [geometry, cellColors, scale]);
+    void longest;
+  }, [geometry, cellColors, scale, trails, progress, longest]);
 
   return (
     <div className="relative inline-block">
       <canvas
         ref={canvasRef}
-        className="rounded-md border border-zinc-800"
+        className={`rounded-md border border-zinc-800${onCellClick ? " cursor-pointer" : ""}`}
+        onClick={(e) => {
+          if (!onCellClick) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          onCellClick(
+            Math.floor((e.clientX - rect.left) / scale),
+            Math.floor((e.clientY - rect.top) / scale),
+          );
+        }}
         onMouseMove={(e) => {
           if (!tooltipFor) return;
           const rect = e.currentTarget.getBoundingClientRect();

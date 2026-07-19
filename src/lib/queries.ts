@@ -161,6 +161,117 @@ export async function runCounts(experimentId: string): Promise<Record<string, nu
   return Object.fromEntries(rows.map((r) => [r.variant, Number(r.n)]));
 }
 
+export interface CulpritRun {
+  runId: string;
+  archetype: string;
+  seed: string;
+  coins: number;
+  simMs: number;
+  verdict: string;
+}
+
+// Which runs died in one cell. The heatmap answers "where", this answers "who" —
+// the click-through from an aggregate back to the individual playthroughs.
+export async function runsAtCell(
+  experimentId: string,
+  variant: string,
+  room: string,
+  gx: number,
+  gy: number,
+  limit = 6,
+): Promise<CulpritRun[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT run_id, archetype, seed, coins, sim_ms, verdict
+      FROM bot_runs
+      WHERE experiment_id = {experimentId: String}
+        AND variant = {variant: String}
+        AND run_id IN (
+          SELECT run_id
+          FROM bot_events
+          WHERE experiment_id = {experimentId: String}
+            AND variant = {variant: String}
+            AND room = {room: String}
+            AND type = 'death'
+            AND toInt32(floor(x / 16)) = {gx: Int32}
+            AND toInt32(floor(y / 16)) = {gy: Int32}
+        )
+      ORDER BY sim_ms
+      LIMIT {limit: UInt8}
+    `,
+    query_params: { experimentId, variant, room, gx, gy, limit },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<{
+    run_id: string;
+    archetype: string;
+    seed: string;
+    coins: string;
+    sim_ms: string;
+    verdict: string;
+  }>();
+  return rows.map((r) => ({
+    runId: r.run_id,
+    archetype: r.archetype,
+    seed: r.seed,
+    coins: Number(r.coins),
+    simMs: Number(r.sim_ms),
+    verdict: r.verdict,
+  }));
+}
+
+export interface RunTrail {
+  runId: string;
+  archetype: string;
+  points: Array<{ t: number; x: number; y: number }>;
+  death: { x: number; y: number } | null;
+}
+
+// The ghost trail: one run's ~10Hz position stream, read straight off the
+// bot_events sort key (experiment_id, variant, run_id, t) — a primary-key
+// range scan per run, no aggregation.
+export async function runTrails(
+  experimentId: string,
+  variant: string,
+  runIds: string[],
+): Promise<RunTrail[]> {
+  if (runIds.length === 0) return [];
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT run_id, archetype, t, x, y, type
+      FROM bot_events
+      WHERE experiment_id = {experimentId: String}
+        AND variant = {variant: String}
+        AND run_id IN {runIds: Array(String)}
+        AND type IN ('pos', 'death')
+      ORDER BY run_id, t
+    `,
+    query_params: { experimentId, variant, runIds },
+    format: "JSONEachRow",
+  });
+  const rows = await rs.json<{
+    run_id: string;
+    archetype: string;
+    t: number;
+    x: number;
+    y: number;
+    type: string;
+  }>();
+  const byRun = new Map<string, RunTrail>();
+  for (const r of rows) {
+    let trail = byRun.get(r.run_id);
+    if (!trail) {
+      trail = { runId: r.run_id, archetype: r.archetype, points: [], death: null };
+      byRun.set(r.run_id, trail);
+    }
+    if (r.type === "death") trail.death = { x: r.x, y: r.y };
+    else trail.points.push({ t: r.t, x: r.x, y: r.y });
+  }
+  return runIds.map((id) => byRun.get(id)).filter((t): t is RunTrail => Boolean(t));
+}
+
 export interface FunnelStage {
   stage: string;
   runs: number;
