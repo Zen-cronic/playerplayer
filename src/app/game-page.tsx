@@ -2,7 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { GameCanvas } from "../components/game-canvas";
+import { CopilotPopover } from "../copilot";
 import type { BrowserGameEvent } from "../game/browser-game";
+import { fetchCulpritRuns, mintChatAccessToken, startChatSession } from "./actions";
 
 // One human playthrough = one run_id, same shape the bots produce. Events
 // buffer client-side and flush in batches so a 10Hz sampler never turns into
@@ -50,6 +52,17 @@ export function GamePage() {
         {sent.toLocaleString()} events sent
         {status === "error" ? " · ingest failed" : ""}
       </p>
+
+      <CopilotPopover
+        accessToken={({ chatId }) => mintChatAccessToken(chatId)}
+        startSession={({ chatId, clientData }) => startChatSession({ chatId, clientData })}
+        onDrillDown={fetchCulpritRuns}
+        suggestions={[
+          "Where do runs die on Level1?",
+          "How does my run compare to the bot swarm?",
+          "What if I move the slime guarding the corridor away from the door?",
+        ]}
+      />
     </div>
   );
 }

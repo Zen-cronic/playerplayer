@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { LevelCanvas } from "./level-canvas";
+import { LevelCanvas } from "../level/level-canvas";
 import { Provenance } from "./provenance";
 
 export interface DeltaOutput {

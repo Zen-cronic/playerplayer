@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { levelGeometry } from "./level-geometry";
+import { useCanvasScale } from "../layout-context";
 
 const OBJECT_COLORS: Record<string, string> = {
   slime: "#4ade80",
@@ -41,11 +42,32 @@ export function LevelCanvas({
   tooltipFor,
   onCellClick,
   trails,
-  scale = 13,
+  scale: scaleProp,
 }: LevelCanvasProps) {
+  const contextScale = useCanvasScale();
+  const maxScale = scaleProp ?? contextScale;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // The card lives in anything from a 380px popover to a full page, so the
+  // map sizes itself to the space available rather than overflowing it.
+  const [fitScale, setFitScale] = useState(maxScale);
   const [hover, setHover] = useState<{ gx: number; gy: number; text: string } | null>(null);
   const geometry = useMemo(() => levelGeometry(room), [room]);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const fit = () => {
+      const avail = el.clientWidth;
+      if (avail > 0) setFitScale(Math.max(3, Math.min(maxScale, Math.floor(avail / geometry.widthTiles))));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [geometry.widthTiles, maxScale]);
+
+  const scale = fitScale;
   // 0..1 sweep used to reveal the trails; resets whenever the trails change.
   const [progress, setProgress] = useState(1);
 
@@ -163,7 +185,7 @@ export function LevelCanvas({
   }, [geometry, cellColors, scale, trails, progress, longest]);
 
   return (
-    <div className="relative inline-block">
+    <div ref={wrapRef} className="relative w-full">
       <canvas
         ref={canvasRef}
         className={`rounded-md border border-zinc-800${onCellClick ? " cursor-pointer" : ""}`}

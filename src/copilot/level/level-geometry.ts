@@ -1,8 +1,8 @@
-import level1 from "../../vendor/tilemap-pack/assets/maps/level1.json";
-import level2 from "../../vendor/tilemap-pack/assets/maps/level2.json";
-import level3 from "../../vendor/tilemap-pack/assets/maps/level3.json";
-import level4 from "../../vendor/tilemap-pack/assets/maps/level4.json";
-import level5 from "../../vendor/tilemap-pack/assets/maps/level5.json";
+import level1 from "../../../vendor/tilemap-pack/assets/maps/level1.json";
+import level2 from "../../../vendor/tilemap-pack/assets/maps/level2.json";
+import level3 from "../../../vendor/tilemap-pack/assets/maps/level3.json";
+import level4 from "../../../vendor/tilemap-pack/assets/maps/level4.json";
+import level5 from "../../../vendor/tilemap-pack/assets/maps/level5.json";
 
 interface TiledMap {
   width: number;

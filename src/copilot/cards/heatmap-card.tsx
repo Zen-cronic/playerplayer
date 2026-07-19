@@ -1,9 +1,18 @@
 "use client";
 
 import { useState, useMemo, useTransition } from "react";
-import { LevelCanvas, type CanvasTrail } from "./level-canvas";
-import { fetchCulpritRuns } from "../app/actions";
+import { LevelCanvas, type CanvasTrail } from "../level/level-canvas";
 import { Provenance } from "./provenance";
+
+// The drill-down is injected rather than imported: this component ships in the
+// SDK, and the host owns the ClickHouse credentials that answer the query.
+export interface DrillDown {
+  (args: { experimentId: string; variant: string; room: string; gx: number; gy: number }): Promise<{
+    runs: Array<{ runId: string; archetype: string; seed: string; coins: number; simMs: number }>;
+    trails: CanvasTrail[];
+    queryMs: number;
+  }>;
+}
 
 export interface HeatmapOutput {
   experimentId: string;
@@ -21,7 +30,13 @@ export interface HeatmapOutput {
   }>;
 }
 
-export function HeatmapCard({ output }: { output: HeatmapOutput }) {
+export function HeatmapCard({
+  output,
+  onDrillDown,
+}: {
+  output: HeatmapOutput;
+  onDrillDown?: DrillDown;
+}) {
   const { cellColors, byKey, totalDeaths, hottest } = useMemo(() => {
     const byKey = new Map(output.cells.map((c) => [`${c.gx},${c.gy}`, c]));
     const maxDeaths = Math.max(1, ...output.cells.map((c) => c.deaths));
@@ -59,10 +74,11 @@ export function HeatmapCard({ output }: { output: HeatmapOutput }) {
   const [pending, startTransition] = useTransition();
 
   const openCell = (gx: number, gy: number) => {
+    if (!onDrillDown) return;
     const cell = byKey.get(`${gx},${gy}`);
     if (!cell || cell.deaths === 0) return;
     startTransition(async () => {
-      const res = await fetchCulpritRuns({
+      const res = await onDrillDown({
         experimentId: output.experimentId,
         variant: output.variant,
         room: output.room,
@@ -86,7 +102,7 @@ export function HeatmapCard({ output }: { output: HeatmapOutput }) {
       <LevelCanvas
         room={output.room}
         cellColors={cellColors}
-        onCellClick={openCell}
+        onCellClick={onDrillDown ? openCell : undefined}
         trails={replay?.trails}
         tooltipFor={(gx, gy) => {
           const c = byKey.get(`${gx},${gy}`);

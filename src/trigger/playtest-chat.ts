@@ -33,6 +33,74 @@ const MutationSchema = z.discriminatedUnion("op", [
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
 
+interface MapObject {
+  type: string;
+  index: number;
+  tileX: number;
+  tileY: number;
+}
+
+const mapObjectCache = new Map<string, MapObject[]>();
+
+function mapObjects(room: string): MapObject[] {
+  const cached = mapObjectCache.get(room);
+  if (cached) return cached;
+  const map = JSON.parse(fs.readFileSync(vendorMapPath(room), "utf8")) as {
+    layers: Array<{ type: string; objects?: Array<{ type?: string; x: number; y: number }> }>;
+  };
+  const counts: Record<string, number> = {};
+  const objects = (map.layers.find((l) => l.type === "objectgroup")?.objects ?? []).map((o) => {
+    const type = o.type || "unknown";
+    const index = counts[type] ?? 0;
+    counts[type] = index + 1;
+    return { type, index, tileX: Math.floor(o.x / 16), tileY: Math.floor(o.y / 16) };
+  });
+  mapObjectCache.set(room, objects);
+  return objects;
+}
+
+// "3 tiles from slime #0" is both more actionable and more speakable than a
+// coordinate pair — it names the thing the designer can actually move.
+function nearestObject(room: string, gx: number, gy: number): string {
+  let best: { o: MapObject; d: number } | null = null;
+  for (const o of mapObjects(room)) {
+    const d = Math.hypot(o.tileX - gx, o.tileY - gy);
+    if (!best || d < best.d) best = { o, d };
+  }
+  if (!best) return "no nearby object";
+  return `${Math.round(best.d)} tiles from ${best.o.type} #${best.o.index}`;
+}
+
+interface CellLike {
+  gx: number;
+  gy: number;
+  deaths?: number;
+  visits?: number;
+  deathsA?: number;
+  deathsB?: number;
+  visitsA?: number;
+  visitsB?: number;
+}
+
+// The model gets a digest, never the cell array: the chart is already on the
+// designer's screen, and handing over hundreds of coordinates is exactly what
+// produces coordinate-dumping walls of text (and ~10k wasted tokens a turn).
+function digest(header: string, room: string, cells: CellLike[], deathsOf: (c: CellLike) => number, visitsOf: (c: CellLike) => number): string {
+  const totalDeaths = cells.reduce((s, c) => s + deathsOf(c), 0);
+  const deathCells = cells.filter((c) => deathsOf(c) > 0).sort((a, b) => deathsOf(b) - deathsOf(a));
+  const busiest = cells.reduce((b, c) => (visitsOf(c) > visitsOf(b) ? c : b), cells[0]);
+  const lines = [
+    header,
+    `${totalDeaths} deaths spread over ${deathCells.length} cells.`,
+    ...deathCells.slice(0, 3).map((c) => `- ${deathsOf(c)} deaths ${nearestObject(room, c.gx, c.gy)}`),
+    busiest
+      ? `Busiest cell has ${visitsOf(busiest)} visits and ${deathsOf(busiest)} deaths (${nearestObject(room, busiest.gx, busiest.gy)}).`
+      : "",
+    "The chart is ALREADY rendered for the designer. You have no coordinate detail to quote — say what it means in at most two sentences.",
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
 const tools = {
   describeLevel: tool({
     description:
@@ -114,6 +182,20 @@ const tools = {
         ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
       };
     },
+    toModelOutput: ({ output }) => {
+      const o = output as { error?: string; room?: string; variant?: string; runs?: number; cells?: CellLike[] };
+      if (o.error || !o.cells) return { type: "text", value: o.error ?? "no data" };
+      return {
+        type: "text",
+        value: digest(
+          `Heatmap rendered: ${o.room} variant "${o.variant}", ${o.runs} runs.`,
+          o.room ?? "Level1",
+          o.cells,
+          (c) => c.deaths ?? 0,
+          (c) => c.visits ?? 0,
+        ),
+      };
+    },
   }),
 
   queryDelta: tool({
@@ -154,6 +236,41 @@ const tools = {
         totals: { deathsA, deathsB, deathRateA: runsA ? deathsA / runsA : 0, deathRateB: runsB ? deathsB / runsB : 0 },
         cells,
         ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
+      };
+    },
+    toModelOutput: ({ output }) => {
+      const o = output as {
+        error?: string;
+        room?: string;
+        variantA?: string;
+        variantB?: string;
+        runsA?: number;
+        runsB?: number;
+        totals?: { deathRateA: number; deathRateB: number };
+        cells?: CellLike[];
+      };
+      if (o.error || !o.cells) return { type: "text", value: o.error ?? "no data" };
+      const rateA = ((o.totals?.deathRateA ?? 0) * 100).toFixed(0);
+      const rateB = ((o.totals?.deathRateB ?? 0) * 100).toFixed(0);
+      // Where deaths MOVED matters as much as whether they fell — report both
+      // directions so a "no change in rate, big change in place" result is visible.
+      const worse = o.cells.filter((c) => (c.deathsB ?? 0) > (c.deathsA ?? 0)).length;
+      const better = o.cells.filter((c) => (c.deathsB ?? 0) < (c.deathsA ?? 0)).length;
+      return {
+        type: "text",
+        value: [
+          `Delta rendered: ${o.room}, "${o.variantA}" (${o.runsA} runs) vs "${o.variantB}" (${o.runsB} runs).`,
+          `Death rate ${rateA}% → ${rateB}%. ${better} cells got safer, ${worse} got deadlier.`,
+          ...o.cells
+            .filter((c) => (c.deathsB ?? 0) !== (c.deathsA ?? 0))
+            .sort((a, b) => Math.abs((b.deathsB ?? 0) - (b.deathsA ?? 0)) - Math.abs((a.deathsB ?? 0) - (a.deathsA ?? 0)))
+            .slice(0, 3)
+            .map((c) => {
+              const d = (c.deathsB ?? 0) - (c.deathsA ?? 0);
+              return `- ${d > 0 ? `+${d}` : d} deaths ${nearestObject(o.room ?? "Level1", c.gx, c.gy)}`;
+            }),
+          "The chart is ALREADY rendered. Give the verdict in at most two sentences; treat under 8 percentage points as noise.",
+        ].join("\n"),
       };
     },
   }),
