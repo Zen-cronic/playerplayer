@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Phaser, simNow, clearPendingFrames } from "./headless-context";
 import { TelemetryBuffer } from "./telemetry";
-import { ExplorerBot, type BotArchetype } from "./bot";
+import { makeBot, type BotArchetype } from "./bot";
 import Level from "../../vendor/tilemap-pack/src/scenes/Level.js";
 
 // Assets resolve from cwd first (matches both `trigger dev` and the deployed
@@ -50,6 +50,10 @@ interface LevelSceneLike extends Phaser.Scene {
       right: { isDown: boolean };
     };
   };
+  enemies?: { getChildren(): Array<{ x: number; y: number; alive?: boolean; active?: boolean }> };
+  pickups?: {
+    getChildren(): Array<{ x: number; y: number; active?: boolean; frame?: { name?: string } }>;
+  };
 }
 
 export function runBot(opts: RunOptions): Promise<RunResult> {
@@ -64,7 +68,7 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
 
   return new Promise<RunResult>((resolve, reject) => {
     const telemetry = new TelemetryBuffer();
-    const bot = new ExplorerBot(seed);
+    const bot = makeBot(archetype, seed);
     const wallStart = Date.now();
     // The sim clock is process-global and keeps counting across sequential
     // games, so every run must measure from its own start.
@@ -135,7 +139,7 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
       }
 
       if (p?.input) {
-        bot.tick(simNow(), p, p.input);
+        bot.tick(simNow(), { player: p, keys: p.input, scene: scene ?? undefined });
       }
 
       if (simNow() - lastSampleAt >= sampleIntervalMs) {

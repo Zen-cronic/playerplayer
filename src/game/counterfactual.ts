@@ -1,6 +1,7 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { runBot } from "./harness";
+import { ARCHETYPES } from "./bot";
 import { applyMutations, type Mutation } from "./mutate";
 import { insertRunTelemetry } from "../lib/ingest";
 import { loadDotEnv, cliArg } from "../lib/env";
@@ -38,7 +39,14 @@ async function main() {
     let deaths = 0;
     let rows = 0;
     for (let i = 0; i < runs; i++) {
-      const result = await runBot({ seed: `${seedBase}-${i}`, level: room, mapPath });
+      // Mixed cohort: archetypes round-robin, same seed+archetype pairing on
+      // both variants so the comparison stays paired.
+      const result = await runBot({
+        seed: `${seedBase}-${i}`,
+        archetype: ARCHETYPES[i % ARCHETYPES.length],
+        level: room,
+        mapPath,
+      });
       const { eventRows } = await insertRunTelemetry(
         { experimentId, variant, runId: randomUUID() },
         result,

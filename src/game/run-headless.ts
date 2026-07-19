@@ -15,8 +15,10 @@ async function main() {
   let totalWall = 0;
   let totalRows = 0;
 
+  const archetype = arg("archetype", "explorer") as import("./bot").BotArchetype;
+
   for (let i = 0; i < runs; i++) {
-    const result = await runBot({ seed: `${seedBase}-${i}` });
+    const result = await runBot({ seed: `${seedBase}-${i}`, archetype });
     totalSim += result.simMs;
     totalWall += result.wallMs;
 
