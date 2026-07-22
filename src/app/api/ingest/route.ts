@@ -40,7 +40,10 @@ const BodySchema = z.object({
 
 function sameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
-  if (!origin) return true; // same-origin fetches may omit Origin
+  // Fail closed: browsers send Origin on POST (safe or not), so the game's own
+  // fetch always carries it. A missing Origin is a non-browser client, which has
+  // no business writing to the telemetry table — reject rather than wave through.
+  if (!origin) return false;
   const host = req.headers.get("host");
   try {
     return new URL(origin).host === host;

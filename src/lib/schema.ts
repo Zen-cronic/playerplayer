@@ -93,11 +93,19 @@ const WATCH_REPORTS_DDL = `
   ORDER BY (room, date)
 `;
 
-export async function ensureSchema(ch: ClickHouseClient): Promise<void> {
-  for (const ddl of [BOT_EVENTS_DDL, BOT_RUNS_DDL, HEATMAP_CELLS_DDL, HEATMAP_CELLS_MV_DDL, WATCH_REPORTS_DDL]) {
-    await ch.command({
-      query: ddl,
-      clickhouse_settings: { wait_end_of_query: 1 },
-    });
-  }
+let schemaReady: Promise<void> | null = null;
+
+// The DDL is idempotent, but issuing five CREATE-IF-NOT-EXISTS round-trips on
+// every insert / ingest POST is a hot-path tax. Memoize so a process bootstraps
+// the schema once; on failure, clear the cache so the next caller can retry.
+export function ensureSchema(ch: ClickHouseClient): Promise<void> {
+  schemaReady ??= (async () => {
+    for (const ddl of [BOT_EVENTS_DDL, BOT_RUNS_DDL, HEATMAP_CELLS_DDL, HEATMAP_CELLS_MV_DDL, WATCH_REPORTS_DDL]) {
+      await ch.command({ query: ddl, clickhouse_settings: { wait_end_of_query: 1 } });
+    }
+  })().catch((e) => {
+    schemaReady = null;
+    throw e;
+  });
+  return schemaReady;
 }

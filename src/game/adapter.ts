@@ -26,6 +26,13 @@ export interface HeadlessAdapter {
    * `opts.archetype`, applying `opts.mapPath` (a mutated level) when given, and
    * resolve with the telemetry stream + verdict. Must be deterministic for a
    * fixed seed so baseline and mutated variants stay matched.
+   *
+   * Concurrency contract: ONE run at a time per process. The swarm gets its
+   * parallelism by fanning `bot-run` tasks across separate workers (each its own
+   * process), not by running two adapters in one process. The Phaser adapter
+   * drives a process-global simulation clock, so overlapping runs in a single
+   * process would interleave and corrupt telemetry; callers here are strictly
+   * sequential. A new engine's adapter may relax this if its engine allows it.
    */
   run(opts: RunOptions): Promise<RunResult>;
 }
