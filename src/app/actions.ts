@@ -55,11 +55,19 @@ export async function fetchCulpritRuns(args: {
   gy: number;
 }): Promise<{ runs: CulpritRun[]; trails: RunTrail[]; queryMs: number }> {
   const started = Date.now();
-  const runs = await runsAtCell(args.experimentId, args.variant, args.room, args.gx, args.gy);
-  const trails = await runTrails(
-    args.experimentId,
-    args.variant,
-    runs.map((r) => r.runId),
-  );
-  return { runs, trails, queryMs: Date.now() - started };
+  try {
+    const runs = await runsAtCell(args.experimentId, args.variant, args.room, args.gx, args.gy);
+    const trails = await runTrails(
+      args.experimentId,
+      args.variant,
+      runs.map((r) => r.runId),
+    );
+    return { runs, trails, queryMs: Date.now() - started };
+  } catch (e) {
+    // A ClickHouse connection error can carry the host — keep it server-side and
+    // degrade the replay to empty rather than rejecting the server action (this
+    // card mounts on `/` and `/chat`, which have no dashboard error boundary).
+    console.error("[fetchCulpritRuns] read failed:", e);
+    return { runs: [], trails: [], queryMs: Date.now() - started };
+  }
 }

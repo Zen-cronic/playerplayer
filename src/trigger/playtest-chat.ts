@@ -165,7 +165,10 @@ const tools = {
         mutations: mutations as Mutation[],
       });
       if (!result.ok) {
-        return { error: `swarm failed: ${String(result.error)}` };
+        // Keep the child's raw error server-side — it can carry the CH host —
+        // and hand the model a fixed, host-free message.
+        console.error("[playtest-chat] runSwarm failed:", result.error);
+        return { error: "the swarm didn't finish — try again in a moment" };
       }
       return { ...result.output, hypothesis, room, archetypes: ARCHETYPES };
     },
