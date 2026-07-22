@@ -125,9 +125,14 @@ export async function listExperimentRefs(limit = 24): Promise<ExperimentRef[]> {
   }));
 }
 
+// Smoke tests and load benchmarks are real swarms but not design experiments;
+// an unspecified query should never default to one.
+const THROWAWAY_EXPERIMENT = /smoke|bench|spike/i;
+
 // The agent can't know experiment ids before it queries, so asking it to supply
-// one invites invented ids and empty charts. Resolve server-side instead:
-// an unknown or omitted id falls back to the most recent experiment.
+// one invites invented ids and empty charts. Resolve server-side instead: an
+// unknown or omitted id falls back to the most recent MEANINGFUL experiment
+// (skipping smoke/benchmark runs). An explicitly requested id is honored as-is.
 export async function resolveExperiment(
   requested?: string,
   opts: { exclude?: string[] } = {},
@@ -141,10 +146,11 @@ export async function resolveExperiment(
     ? all.filter((r) => !opts.exclude!.includes(r.experimentId))
     : all;
   const hit = requested ? refs.find((r) => r.experimentId === requested) : undefined;
+  const fallback = refs.find((r) => !THROWAWAY_EXPERIMENT.test(r.experimentId)) ?? refs[0] ?? null;
   return {
-    ref: hit ?? refs[0] ?? null,
-    fellBack: Boolean(requested) && !hit && refs.length > 0,
-    known: refs.map((r) => r.experimentId),
+    ref: hit ?? fallback,
+    fellBack: Boolean(requested) && !hit && Boolean(fallback),
+    known: refs.filter((r) => !THROWAWAY_EXPERIMENT.test(r.experimentId)).map((r) => r.experimentId),
   };
 }
 
