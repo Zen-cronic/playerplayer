@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copilot, StatusChip } from "../copilot";
+import { Copilot, StatusChip } from "playtest-copilot";
 import {
   fetchCulpritRuns,
   fetchStackHealth,

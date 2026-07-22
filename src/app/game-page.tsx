@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { GameCanvas } from "../components/game-canvas";
-import { CopilotPopover } from "../copilot";
+import { CopilotPopover } from "playtest-copilot";
 import type { BrowserGameEvent } from "../game/browser-game";
 import { fetchCulpritRuns, mintChatAccessToken, startChatSession } from "./actions";
 

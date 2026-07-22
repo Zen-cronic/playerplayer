@@ -1,0 +1,46 @@
+{
+  "name": "playtest-copilot",
+  "version": "0.1.0",
+  "description": "In-game chat copilot that answers level-design what-ifs with a re-simulated before/after delta heatmap. The popover and play-telemetry install into any web game; swarm simulation ships a Phaser headless adapter.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": [
+    "*.css"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/index.css"
+  },
+  "scripts": {
+    "build": "tsup && node scripts/prepend-use-client.mjs && pnpm run build:css",
+    "build:css": "tailwindcss -i ./styles.css -o ./dist/index.css --minify",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@ai-sdk/react": "^3",
+    "@trigger.dev/sdk": "^4.5",
+    "ai": "^6",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@ai-sdk/react": "^3.0.232",
+    "@tailwindcss/cli": "^4.1.0",
+    "@trigger.dev/sdk": "4.5.4",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "ai": "^6.0.230",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwindcss": "^4.1.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.9.0"
+  }
+}

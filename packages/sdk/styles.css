@@ -1,0 +1,8 @@
+/* Compiled to dist/index.css and shipped in the package: a consumer imports
+   "playtest-copilot/styles.css" and gets exactly the utilities the widget uses.
+   Theme + utilities only — no preflight, so importing this never resets the
+   host page's own styles. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "./src/**/*.{ts,tsx}";

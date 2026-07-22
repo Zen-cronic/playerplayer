@@ -1,8 +1,11 @@
-import level1 from "../../../vendor/tilemap-pack/assets/maps/level1.json";
-import level2 from "../../../vendor/tilemap-pack/assets/maps/level2.json";
-import level3 from "../../../vendor/tilemap-pack/assets/maps/level3.json";
-import level4 from "../../../vendor/tilemap-pack/assets/maps/level4.json";
-import level5 from "../../../vendor/tilemap-pack/assets/maps/level5.json";
+// Bundled with the package so the widget is self-contained. These are copies of
+// the demo game's Tiled maps (vendor/tilemap-pack); tsup inlines them into the
+// ESM output. A consumer shipping a different game supplies their own geometry.
+import level1 from "./maps/level1.json";
+import level2 from "./maps/level2.json";
+import level3 from "./maps/level3.json";
+import level4 from "./maps/level4.json";
+import level5 from "./maps/level5.json";
 
 interface TiledMap {
   width: number;

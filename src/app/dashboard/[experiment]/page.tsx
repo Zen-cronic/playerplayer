@@ -7,9 +7,7 @@ import {
   progressionFunnel,
   runCounts,
 } from "../../../lib/queries";
-import { HeatmapCard } from "../../../copilot/cards/heatmap-card";
-import { DeltaCard } from "../../../copilot/cards/delta-card";
-import { FunnelCard } from "../../../copilot/cards/funnel-card";
+import { HeatmapCard, DeltaCard, FunnelCard } from "playtest-copilot";
 
 export const dynamic = "force-dynamic";
 

@@ -15,16 +15,18 @@
     "node": ">=20"
   },
   "scripts": {
-    "predev": "node scripts/sync-game-assets.mjs",
+    "build:sdk": "pnpm --filter playtest-copilot build",
+    "predev": "node scripts/sync-game-assets.mjs && pnpm run build:sdk",
     "dev": "next dev",
     "dev:trigger": "trigger dev",
-    "prebuild": "node scripts/sync-game-assets.mjs",
+    "prebuild": "node scripts/sync-game-assets.mjs && pnpm run build:sdk",
     "build": "next build",
     "start": "next start",
     "bot": "tsx src/game/run-headless.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "playtest-copilot": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.98",
     "@ai-sdk/react": "^3.0.232",
     "@clickhouse/client": "1.23.0",
