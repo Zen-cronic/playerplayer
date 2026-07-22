@@ -279,8 +279,12 @@ const tools = {
       const rateB = ((o.totals?.deathRateB ?? 0) * 100).toFixed(0);
       // Where deaths MOVED matters as much as whether they fell — report both
       // directions so a "no change in rate, big change in place" result is visible.
-      const worse = o.cells.filter((c) => (c.deathsB ?? 0) > (c.deathsA ?? 0)).length;
-      const better = o.cells.filter((c) => (c.deathsB ?? 0) < (c.deathsA ?? 0)).length;
+      // Compare per-cell death RATES, not raw counts: a failed run can leave the
+      // variants with unequal run counts, and only the rate is comparable then.
+      const rA = Math.max(1, o.runsA ?? 0);
+      const rB = Math.max(1, o.runsB ?? 0);
+      const worse = o.cells.filter((c) => (c.deathsB ?? 0) / rB > (c.deathsA ?? 0) / rA).length;
+      const better = o.cells.filter((c) => (c.deathsB ?? 0) / rB < (c.deathsA ?? 0) / rA).length;
       return {
         type: "text",
         value: [
