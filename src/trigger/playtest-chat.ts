@@ -458,6 +458,9 @@ const tools = {
               countIf(verdict = 'lose') AS deaths,
               max(inserted_at) AS last_run
             FROM bot_runs
+            WHERE NOT (lower(experiment_id) LIKE '%smoke%'
+              OR lower(experiment_id) LIKE '%bench%'
+              OR lower(experiment_id) LIKE '%spike%')
             GROUP BY experiment_id, variant
             ORDER BY last_run DESC
             LIMIT 24

@@ -47,7 +47,7 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight">Experiment registry</h1>
           <p className="text-sm text-zinc-500">
-            every swarm this agent has run, and what the nightly canary saw
+            every experiment this agent has run, and what the nightly canary saw
           </p>
         </div>
         <nav className="flex gap-3 text-sm text-zinc-400">

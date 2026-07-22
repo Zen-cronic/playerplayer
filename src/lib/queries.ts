@@ -210,7 +210,9 @@ export interface ExperimentRow {
   lastRun: string;
 }
 
-// Registry view for /dashboard: what has been run, when, and how lethal it was.
+// Registry view for /dashboard: the design experiments that have run, when, and
+// how lethal each was. Smoke tests and load benchmarks are excluded — they are
+// real swarms but CI/dev artifacts, not experiments a designer would scan.
 export async function experimentRows(limit = 50): Promise<ExperimentRow[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
@@ -222,6 +224,9 @@ export async function experimentRows(limit = 50): Promise<ExperimentRow[]> {
         countIf(verdict = 'lose') AS deaths,
         toString(max(inserted_at)) AS last_run
       FROM bot_runs
+      WHERE NOT (lower(experiment_id) LIKE '%smoke%'
+        OR lower(experiment_id) LIKE '%bench%'
+        OR lower(experiment_id) LIKE '%spike%')
       GROUP BY experiment_id
       ORDER BY max(inserted_at) DESC
       LIMIT {limit: UInt16}
