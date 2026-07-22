@@ -463,6 +463,7 @@ const baseTools = {
               AND NOT (lower(experiment_id) LIKE '%smoke%'
               OR lower(experiment_id) LIKE '%bench%'
               OR lower(experiment_id) LIKE '%spike%')
+              AND NOT startsWith(experiment_id, 'live-')
             GROUP BY experiment_id, variant
             ORDER BY last_run DESC
             LIMIT 24

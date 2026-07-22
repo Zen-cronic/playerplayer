@@ -1099,6 +1099,50 @@ a {
   margin-top: 16px;
 }
 
+/* Live ops panel */
+.live-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 64px;
+  padding: 8px;
+  border: 1px solid var(--ps-line);
+  border-radius: 8px;
+  background: var(--ps-paper-strong);
+}
+
+.live-spark span {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--ps-line);
+}
+
+.live-spark span[data-active] {
+  background: var(--ps-violet);
+}
+
+.live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+button.dash-tab {
+  cursor: pointer;
+}
+
+button.dash-tab:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.live-notice {
+  font-size: 12px;
+}
+
 .visualization-stack {
   display: grid;
   gap: 56px;

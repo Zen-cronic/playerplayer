@@ -135,9 +135,10 @@ export async function listExperimentRefs(limit = 24, gameId: string = DEMO_GAME_
   }));
 }
 
-// Smoke tests and load benchmarks are real swarms but not design experiments;
-// an unspecified query should never default to one.
-const THROWAWAY_EXPERIMENT = /smoke|bench|spike/i;
+// Smoke tests, load benchmarks, and live-ops demo waves are real swarms but
+// not design experiments; an unspecified query should never default to one.
+// (live- is prefix-anchored so an experiment merely CONTAINING "live" is fine.)
+const THROWAWAY_EXPERIMENT = /smoke|bench|spike|^live-/i;
 
 // The agent can't know experiment ids before it queries, so asking it to supply
 // one invites invented ids and empty charts. Resolve server-side instead: an
@@ -240,6 +241,7 @@ export async function experimentRows(limit = 50, gameId: string = DEMO_GAME_ID):
         AND NOT (lower(experiment_id) LIKE '%smoke%'
           OR lower(experiment_id) LIKE '%bench%'
           OR lower(experiment_id) LIKE '%spike%')
+        AND NOT startsWith(experiment_id, 'live-')
       GROUP BY experiment_id
       ORDER BY max(inserted_at) DESC
       LIMIT {limit: UInt16}

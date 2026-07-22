@@ -1,8 +1,15 @@
 "use server";
 
-import { auth } from "@trigger.dev/sdk";
+import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import { chat } from "@trigger.dev/sdk/ai";
+import type { liveSwarm } from "../trigger/live-swarm";
 import { runsAtCell, runTrails, type CulpritRun, type RunTrail } from "../lib/queries";
+import {
+  EMPTY_LIVE_SNAPSHOT,
+  liveOpsSnapshot,
+  liveRecentActivity,
+  type LiveOpsSnapshot,
+} from "../lib/ops-queries";
 import { getClickHouse, READ_SETTINGS } from "../lib/clickhouse";
 
 // Creates the Session + first run; idempotent on (env, chatId).
@@ -42,6 +49,50 @@ export async function fetchStackHealth(): Promise<{
     };
   } catch {
     return { ok: false, events: 0, runs: 0, pingMs: Date.now() - started };
+  }
+}
+
+// Launching the live demo is a PUBLIC compute endpoint, so it is guarded three
+// ways: (1) hard bounds live server-side AND in the task's zod schema — a
+// visitor cannot control wave size; (2) a data-enforced global cooldown — any
+// live-* event in the last 5 minutes refuses the launch; (3) the experiment id
+// AND the global-scope idempotency key both derive from the same 5-minute
+// bucket, so racing calls in one bucket produce an identical payload+key and
+// dedupe to ONE run whose id every caller truthfully reports (verified live:
+// a double launch created a single swarm). The two guards interlock: same
+// bucket → key dedupes; later bucket → the earlier wave's events trip the
+// cooldown. Worst case: one bounded 18-run wave per 5 minutes on a 3-slot
+// queue.
+export async function launchLiveSwarm(): Promise<{
+  ok: boolean;
+  experimentId?: string;
+  reason?: "cooldown" | "unavailable";
+}> {
+  try {
+    if (await liveRecentActivity()) return { ok: false, reason: "cooldown" };
+    const bucket = Math.floor(Date.now() / 300_000);
+    const experimentId = `live-${bucket.toString(36)}`;
+    const idempotencyKey = await idempotencyKeys.create(`live:${bucket}`, { scope: "global" });
+    await tasks.trigger<typeof liveSwarm>(
+      "live-swarm",
+      { experimentId, waves: 3, runsPerWave: 6, pace: 3 },
+      { tags: [`exp_${experimentId}`, "live"], idempotencyKey },
+    );
+    return { ok: true, experimentId };
+  } catch (e) {
+    console.error("[launchLiveSwarm] failed:", e);
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+// 1.5s client poll target. Degrades to zeros on any ClickHouse error — a blip
+// shows a flat panel, never an error page, and never a host string.
+export async function fetchLiveOps(experimentId?: string): Promise<LiveOpsSnapshot> {
+  try {
+    return await liveOpsSnapshot(experimentId);
+  } catch (e) {
+    console.error("[fetchLiveOps] read failed:", e);
+    return EMPTY_LIVE_SNAPSHOT;
   }
 }
 
