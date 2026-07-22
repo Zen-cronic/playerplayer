@@ -34,6 +34,30 @@ test.describe("live: chat read renders a card from ClickHouse", () => {
   });
 });
 
+test.describe("live: human-vs-swarm ghost overlay", () => {
+  test("'how did my run compare' renders the human trail over the swarm heatmap", async ({
+    page,
+  }, info) => {
+    test.setTimeout(120_000);
+    const errors = collectErrors(page);
+
+    await page.goto("/chat");
+    const input = page.getByRole("textbox", { name: "Ask about your level…" });
+    await input.fill("How did my run compare to the bot swarm?");
+    await input.press("Enter");
+
+    // compareMyRun renders the same heatmap card with the player's own run drawn
+    // over it — the "your run ·" overlay line is the ghost-trail signal.
+    await expect(page.getByText(/your run ·/).first()).toBeVisible({ timeout: 90_000 });
+    await expect(
+      page.getByText(/heatmap_cells \(AggregatingMergeTree MV\)/).first(),
+    ).toBeVisible();
+
+    await attachErrorReport(info, errors);
+    expect(errors.pageErrors, `uncaught page errors:\n${errors.pageErrors.join("\n")}`).toEqual([]);
+  });
+});
+
 test.describe("live: HITL approval gate pauses and resumes", () => {
   test("a what-if pauses on an approval card, and Deny resumes without spending compute", async ({
     page,
