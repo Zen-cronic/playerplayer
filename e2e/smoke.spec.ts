@@ -80,6 +80,31 @@ test.describe("smoke: dashboard registry", () => {
     expect(errors.pageErrors, `uncaught page errors:\n${errors.pageErrors.join("\n")}`).toEqual([]);
   });
 
+  test("a two-variant experiment renders the before/after delta card", async ({ page }, info) => {
+    const errors = collectErrors(page);
+
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { name: "Experiment registry", level: 1 })).toBeVisible();
+
+    // A registry row that lists two variants (comma in the variants cell) has a
+    // baseline vs mutated comparison, so its drill-in renders the delta card.
+    const link = page
+      .getByRole("row")
+      .filter({ hasText: /, / })
+      .first()
+      .getByRole("link")
+      .first();
+    await link.click();
+
+    await expect(page).toHaveURL(/\/dashboard\/.+/);
+    // The delta card names the exact single-pass query it came from.
+    await expect(page.getByText(/single-pass sumIf delta, no join/).first()).toBeVisible();
+    await expect(page.getByText(/red = more deaths after change/)).toBeVisible();
+
+    await attachErrorReport(info, errors);
+    expect(errors.pageErrors, `uncaught page errors:\n${errors.pageErrors.join("\n")}`).toEqual([]);
+  });
+
   test("never renders a ClickHouse host or credentials", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "Experiment registry" })).toBeVisible();
