@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  experimentRoom,
   heatmap,
   heatmapDelta,
   listExperimentRefs,
@@ -10,8 +11,6 @@ import {
 import { HeatmapCard, DeltaCard, FunnelCard } from "playtest-copilot";
 
 export const dynamic = "force-dynamic";
-
-const ROOM = "Level1";
 
 // Drill-in reuses the exact card components the chat renders — the dashboard
 // is a second consumer of the same visual vocabulary, not a parallel UI.
@@ -27,6 +26,9 @@ export default async function ExperimentPage({
   const ref = refs.find((r) => r.experimentId === experimentId);
   if (!ref) notFound();
 
+  // Derive the map from the data, not a Level1 assumption — a Level2-5 swarm
+  // renders over its own geometry with correct labels.
+  const ROOM = await experimentRoom(experimentId);
   const counts = await runCounts(experimentId);
   const variantA = ref.variants.includes("baseline") ? "baseline" : ref.variants[0];
   const variantB = ref.variants.find((v) => v !== variantA);

@@ -151,6 +151,28 @@ export async function resolveExperiment(
 /** Human play sessions share bot_events but must never be mistaken for a swarm. */
 export const HUMAN_EXPERIMENT = "human-play";
 
+// The room an experiment mostly ran in. Swarms can span more than one map room
+// (a bot can walk through a door into the next level), so the drill-in picks the
+// modal room rather than assuming Level1. Falls back to Level1 for empty data.
+export async function experimentRoom(experimentId: string): Promise<string> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT room, count() AS n
+      FROM bot_events
+      WHERE experiment_id = {experimentId: String}
+      GROUP BY room
+      ORDER BY n DESC
+      LIMIT 1
+    `,
+    query_params: { experimentId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const [row] = await rs.json<{ room: string }>();
+  return row?.room ?? "Level1";
+}
+
 export function pickVariant(ref: ExperimentRef, requested?: string): string {
   if (requested && ref.variants.includes(requested)) return requested;
   if (ref.variants.includes("baseline")) return "baseline";
