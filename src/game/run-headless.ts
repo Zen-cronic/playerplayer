@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { runBot } from "./harness";
+import { phaserAdapter } from "./adapter";
 import { loadDotEnv, cliArg as arg } from "../lib/env";
 
 async function main() {
@@ -18,7 +18,7 @@ async function main() {
   const archetype = arg("archetype", "explorer") as import("./bot").BotArchetype;
 
   for (let i = 0; i < runs; i++) {
-    const result = await runBot({ seed: `${seedBase}-${i}`, archetype });
+    const result = await phaserAdapter.run({ seed: `${seedBase}-${i}`, archetype });
     totalSim += result.simMs;
     totalWall += result.wallMs;
 

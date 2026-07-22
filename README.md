@@ -115,6 +115,15 @@ import "playtest-copilot/styles.css"; // compiled utilities — no Tailwind requ
 > **Phaser** headless adapter; other engines need their own. We do not claim any
 > game gets a bot swarm for free.
 
+The swarm's engine seam is a single interface, `HeadlessAdapter`
+(`src/game/adapter.ts`): given a seed, archetype, and level, `run()` drives one
+headless playthrough and returns telemetry in the shared shape. Everything
+downstream — the ClickHouse firehose, the materialized views, and every card the
+chat renders — is engine-agnostic and consumes that telemetry unchanged, so a
+new engine implements only `run()`. The repo ships the Phaser adapter
+(`phaserAdapter`), and the swarm's bot-run task drives the game exclusively
+through it.
+
 > The package builds locally (`pnpm --filter playtest-copilot build`, verified
 > with `npm pack`) and **is published to npm at submission** under the name
 > `playtest-copilot`; the snippet above is the shipping API.

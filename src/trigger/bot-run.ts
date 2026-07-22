@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { task } from "@trigger.dev/sdk";
-import { runBot } from "../game/harness";
+import { phaserAdapter } from "../game/adapter";
 import { insertRunTelemetry } from "../lib/ingest";
 import { applyMutations, type Mutation } from "../game/mutate";
 import type { BotArchetype } from "../game/bot";
@@ -33,7 +33,7 @@ export const botRun = task({
       );
     }
 
-    const result = await runBot({
+    const result = await phaserAdapter.run({
       seed: payload.seed,
       archetype: payload.archetype,
       level,
