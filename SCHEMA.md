@@ -136,8 +136,10 @@ worth copying:
   A/B equality checks passed against live data: row counts (684,857 events /
   977 runs at the time), per-experiment death counts, a props JSON round-trip
   (`sum(coins)/sum(health)` v1 vs `sum(props.coins)/sum(props.health)`), the
-  MV totals, and the registry aggregate. `pnpm migrate:verify` re-runs them any
-  time.
+  MV totals, and the registry aggregate. These checks are an **apply-time
+  gate** (`reverifiable: false`): after the cutover commit v1 freezes while v2
+  keeps growing, so re-running raw A/B comparisons would diverge by design —
+  `pnpm migrate:verify` reports the gate instead of re-running it.
 - **The MV double-count trap.** The backfill INSERT SELECT itself fires
   `game_heatmap_mv`, populating the rollup as a side effect — a naive extra
   "backfill the aggregate" statement would double every count. The parity check

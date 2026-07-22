@@ -18,6 +18,11 @@ import type { Migration } from "./types";
 export const backfill: Migration = {
   id: 3,
   name: "backfill_v1_to_v2",
+  // The parity checks are an APPLY-TIME gate: after the cutover commit, v1
+  // freezes while v2 keeps growing, so raw v1-vs-v2 comparisons diverge
+  // forever — by design, not by defect. All six passed at apply (684,857
+  // events / 977 runs identical on both sides).
+  reverifiable: false,
   statements: [
     `
   INSERT INTO game_events (game_id, experiment_id, variant, run_id, archetype, t, type, x, y, room, props, inserted_at)

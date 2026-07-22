@@ -208,8 +208,10 @@ pnpm dev                # terminal 2: Next.js (builds the SDK, then serves the a
 
 Requires a ClickHouse instance and a Trigger.dev project. The schema lives in
 the versioned chain under `migrations/` (`pnpm migrate:status` shows the
-ledger, `pnpm migrate:verify` re-runs the backfill parity checks); only the CLI
-applies migrations — app processes verify and refuse to run behind.
+ledger; `pnpm migrate:verify` re-runs re-runnable checks — the backfill's
+parity checks are an apply-time gate, since v1 freezes at cutover while v2
+keeps growing); only the CLI applies migrations — app processes verify and
+refuse to run behind.
 
 ### Reproduce & verify
 

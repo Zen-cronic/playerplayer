@@ -145,7 +145,9 @@ export async function applyPending(
   return applied;
 }
 
-// CLI `verify`: re-run the parity checks of every applied migration.
+// CLI `verify`: re-run the parity checks of every applied, reverifiable
+// migration. Apply-time-only gates (reverifiable: false) are reported, not
+// re-run — their source data diverges after cutover by design.
 export async function verifyApplied(
   ch: ClickHouseClient,
   log: (line: string) => void = () => {},
@@ -154,6 +156,10 @@ export async function verifyApplied(
   for (const s of statuses) {
     if (s.state !== "applied") continue;
     const m = MIGRATIONS.find((x) => x.id === s.id)!;
+    if (m.reverifiable === false) {
+      log(`${m.id}_${m.name} … apply-time gate (${m.postChecks?.length ?? 0} checks passed at apply; source diverges post-cutover by design)`);
+      continue;
+    }
     await runPostChecks(ch, m);
     log(`${m.id}_${m.name} … ${m.postChecks?.length ?? 0} checks OK`);
   }

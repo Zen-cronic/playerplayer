@@ -16,4 +16,12 @@ export interface Migration {
   name: string;
   statements: string[];
   postChecks?: ParityCheck[];
+  /**
+   * Whether `migrate verify` may re-run postChecks after apply. A backfill's
+   * parity checks compare against a source that FREEZES at cutover while the
+   * target keeps growing — they hold at apply time and then diverge by design,
+   * so such migrations set this false. Deliberately excluded from the
+   * checksum (it changes verify behavior, not database behavior).
+   */
+  reverifiable?: boolean;
 }
