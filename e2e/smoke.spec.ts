@@ -57,6 +57,29 @@ test.describe("smoke: dashboard registry", () => {
     expect(errors.pageErrors, `uncaught page errors:\n${errors.pageErrors.join("\n")}`).toEqual([]);
   });
 
+  test("drill-in reuses the chat's cards with truthful provenance", async ({ page }, info) => {
+    const errors = collectErrors(page);
+
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { name: "Experiment registry", level: 1 })).toBeVisible();
+
+    // Click the first experiment link into the drill-in. These are server-
+    // rendered CH cards — no LLM — so the flow is deterministic.
+    const firstExperiment = page.getByRole("cell").getByRole("link").first();
+    const name = (await firstExperiment.textContent())?.trim() ?? "";
+    await firstExperiment.click();
+
+    await expect(page).toHaveURL(/\/dashboard\/.+/);
+    await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
+    // The same heatmap card the chat renders, with its live provenance.
+    await expect(
+      page.getByText(/heatmap_cells \(AggregatingMergeTree MV\)/).first(),
+    ).toBeVisible();
+
+    await attachErrorReport(info, errors);
+    expect(errors.pageErrors, `uncaught page errors:\n${errors.pageErrors.join("\n")}`).toEqual([]);
+  });
+
   test("never renders a ClickHouse host or credentials", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "Experiment registry" })).toBeVisible();
