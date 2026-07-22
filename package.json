@@ -23,6 +23,7 @@
     "build": "next build",
     "start": "next start",
     "bot": "tsx src/game/run-headless.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
