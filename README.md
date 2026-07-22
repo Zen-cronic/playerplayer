@@ -7,15 +7,18 @@ A chat agent for game designers, built on [Trigger.dev](https://trigger.dev)
 Trigger.dev AI Hackathon 2026 — *"Beyond the Wall of Text."*
 
 Ask **"where do runs die on this level?"** and it dispatches a swarm of headless
-bots to play the level, streams ~10 Hz positional telemetry into ClickHouse, and
+bots to play the level, records ~10 Hz positional telemetry into ClickHouse, and
 answers with a **death heatmap** drawn over your actual map — not a paragraph.
 Ask **"what if I move the slime away from the door?"** and it mutates the level
 (with your approval), re-runs the swarm on matched seeds, and renders the
 **before/after delta heatmap** that proves whether the change actually helped —
 or, as the demo shows, just relocated the deaths.
 
-The answer is the product: every reply is a chart you can click into, not text
-about a chart.
+The agent doesn't query a canned dataset — it acts to create one. Each swarm run
+and level mutation *generates* the telemetry ClickHouse then aggregates, so the
+agent answers a what-if by running the experiment, not by looking one up. The
+answer is the product: every reply is a chart you can click into, not text about
+a chart.
 
 ## The loop
 
@@ -45,7 +48,7 @@ analytical view the chat renders — no OLTP tier in the hot path.
 - **`heatmap_cells`** — `AggregatingMergeTree` fed by an **insert-time
   materialized view** (`heatmap_cells_mv`) using `sumSimpleState` to grid-bin
   visits / deaths / damage / coin-pickups per cell as events land. Heatmaps read
-  pre-aggregated state, so they stay fast while the firehose is still writing.
+  pre-aggregated state, so they stay fast while the swarm is still inserting.
 - **Delta** = a single-pass `sumIf` over `heatmap_cells` comparing `baseline` vs
   `mutated` in one query — **no joins**.
 - **`windowFunnel`** drives the progression funnel (started → 1 coin → 3 coins →
