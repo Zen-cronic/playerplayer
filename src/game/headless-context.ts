@@ -9,6 +9,21 @@ import Phaser from "phaser";
 const STEP_MS = 1000 / 60;
 let simTime = 0;
 
+// Live-mode pacing. Sim time still advances exactly STEP_MS per dispatched
+// frame (t stamps and durations stay sim-clocked), but timer-paced dispatch
+// interleaves Node macrotasks differently than setImmediate, so a paced run's
+// frame sequence can drift a few frames from the flat-out run for the same
+// seed (measured: ~2% event drift, same verdict/route). Pacing is therefore
+// LIVE-LANE ONLY — matched-seed science (experiments, nightly canary) always
+// runs flat-out, which stays byte-identical run-to-run.
+let frameDelayMs = 0;
+
+/** Approximate a realtime multiple (clamped 1..20); null/0 = flat-out. */
+export function setSimPace(multiplier: number | null): void {
+  frameDelayMs =
+    multiplier && multiplier > 0 ? STEP_MS / Math.min(Math.max(multiplier, 1), 20) : 0;
+}
+
 const win = (globalThis as { window?: Window & { performance: Performance } }).window;
 if (!win) throw new Error("phaser-on-nodejs did not install a global window");
 
@@ -23,13 +38,15 @@ const pendingFrames = new Map<number, (t: number) => void>();
 ) => {
   const id = nextRafId++;
   pendingFrames.set(id, cb);
-  setImmediate(() => {
+  const dispatch = () => {
     const fn = pendingFrames.get(id);
     if (!fn) return;
     pendingFrames.delete(id);
     simTime += STEP_MS;
     fn(simTime);
-  });
+  };
+  if (frameDelayMs > 0) setTimeout(dispatch, frameDelayMs);
+  else setImmediate(dispatch);
   return id;
 };
 

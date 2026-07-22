@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { phaserAdapter } from "./adapter";
 import { loadDotEnv, cliArg as arg } from "../lib/env";
 
@@ -8,6 +8,10 @@ async function main() {
   const insert = process.argv.includes("--insert");
   const experimentId = arg("experiment", "local-spike");
   const variant = arg("variant", "baseline");
+  // Live-mode pacing dial (e.g. --pace 3 ≈ 3x realtime). Note: paced runs are
+  // NOT frame-deterministic vs flat-out (see headless-context) — the digest
+  // below compares flat-out runs to each other, which must be identical.
+  const pace = Number(arg("pace", "0")) || undefined;
 
   if (insert) loadDotEnv();
 
@@ -18,9 +22,16 @@ async function main() {
   const archetype = arg("archetype", "explorer") as import("./bot").BotArchetype;
 
   for (let i = 0; i < runs; i++) {
-    const result = await phaserAdapter.run({ seed: `${seedBase}-${i}`, archetype });
+    const result = await phaserAdapter.run({ seed: `${seedBase}-${i}`, archetype, pace });
     totalSim += result.simMs;
     totalWall += result.wallMs;
+    // Wall-independent digest over the full event stream (t/type/x/y/state) —
+    // two flat-out runs of the same seed must print the same digest.
+    const digest = createHash("sha256")
+      .update(result.events.map((e) => `${e.t}|${e.type}|${e.x}|${e.y}|${e.health}|${e.coins}|${e.detail}`).join("\n"))
+      .digest("hex")
+      .slice(0, 16);
+    console.log(`run ${i}: events digest ${digest}`);
 
     if (insert) {
       const { insertRunTelemetry } = await import("../lib/ingest");

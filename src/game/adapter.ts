@@ -25,7 +25,10 @@ export interface HeadlessAdapter {
    * Run ONE headless playthrough of `opts.level` under `opts.seed` and
    * `opts.archetype`, applying `opts.mapPath` (a mutated level) when given, and
    * resolve with the telemetry stream + verdict. Must be deterministic for a
-   * fixed seed so baseline and mutated variants stay matched.
+   * fixed seed so baseline and mutated variants stay matched — that guarantee
+   * applies to the flat-out path, which all matched-seed science uses; the
+   * live-lane `pace`/`onFlush` options trade frame determinism for wall-clock
+   * pacing and mid-run streaming, and are never used for experiments.
    *
    * Concurrency contract: ONE run at a time per process. The swarm gets its
    * parallelism by fanning `bot-run` tasks across separate workers (each its own

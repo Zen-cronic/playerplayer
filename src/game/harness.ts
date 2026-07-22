@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Phaser, simNow, clearPendingFrames } from "./headless-context";
+import { Phaser, simNow, clearPendingFrames, setSimPace } from "./headless-context";
 import { TelemetryBuffer } from "./telemetry";
 import { makeBot, type BotArchetype } from "./bot";
 import Level from "../../vendor/tilemap-pack/src/scenes/Level.js";
@@ -25,6 +25,22 @@ export interface RunOptions {
   mapPath?: string;
   timeoutSimMs?: number;
   sampleIntervalMs?: number;
+  /**
+   * Live mode: approximate realtime multiple (clamped 1..20). The sim clock
+   * stays synthetic (t stamps unchanged in meaning), but paced dispatch can
+   * drift the frame sequence a few frames vs flat-out for the same seed — so
+   * pace is live-lane only; matched-seed science always runs flat-out.
+   */
+  pace?: number;
+  /**
+   * Live mode: streaming sink for newly-recorded event chunks. One chunk in
+   * flight at a time; the cursor advances only on a durable ack, and the first
+   * failure stops mid-run flushing (the final insert covers the tail). Never
+   * called when absent.
+   */
+  onFlush?: (events: TelemetryBuffer["events"]) => Promise<void>;
+  /** Wall-clock cadence for onFlush. Default 750ms. */
+  flushIntervalMs?: number;
 }
 
 export interface RunResult {
@@ -36,6 +52,8 @@ export interface RunResult {
   coins: number;
   roomsVisited: string[];
   events: TelemetryBuffer["events"];
+  /** How many leading events were already delivered (acked) via onFlush. */
+  flushedEvents: number;
 }
 
 interface LevelSceneLike extends Phaser.Scene {
@@ -64,6 +82,9 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
     mapPath,
     timeoutSimMs = 90_000,
     sampleIntervalMs = 100,
+    pace,
+    onFlush,
+    flushIntervalMs = 750,
   } = opts;
 
   return new Promise<RunResult>((resolve, reject) => {
@@ -79,6 +100,17 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
     let game: Phaser.Game;
 
     const roomsVisited: string[] = [];
+
+    // Streaming flush state: strictly ordered, gap-free delivery. The cursor
+    // advances ONLY when a chunk is durably acked, so a failed chunk is simply
+    // re-covered by the final end-of-run insert (see insertRunTelemetry's
+    // skipEventRows) — never re-sent mid-run, never lost.
+    let flushedCursor = 0;
+    let inFlight: Promise<void> | null = null;
+    let flushDegraded = false;
+    let lastFlushWall = Date.now();
+
+    setSimPace(pace ?? null);
 
     const state = () => {
       const scene = game.scene.getScene("Level") as LevelSceneLike | null;
@@ -101,7 +133,7 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
       if (finished) return;
       finished = true;
       record("run_end", verdict);
-      const result: RunResult = {
+      const result: Omit<RunResult, "flushedEvents"> = {
         seed,
         archetype,
         verdict,
@@ -115,11 +147,16 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
       // destroy() only marks pendingDestroy; teardown happens on the game's
       // next step, and its final step re-requests a frame after DESTROY
       // fires. Flush that zombie frame on the next tick, before resolving,
-      // so the next run boots onto a clean scheduler.
+      // so the next run boots onto a clean scheduler. Pacing resets here too —
+      // one paced run must never leak its pace into the next run in the
+      // process — and any in-flight chunk settles first so flushedEvents is
+      // the true acked cursor.
       game.events.once(Phaser.Core.Events.DESTROY, () => {
-        setImmediate(() => {
+        setImmediate(async () => {
+          if (inFlight) await inFlight.catch(() => {});
+          setSimPace(null);
           clearPendingFrames();
-          resolve(result);
+          resolve({ ...result, flushedEvents: flushedCursor });
         });
       });
       setImmediate(() => game.destroy(false));
@@ -145,6 +182,30 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
       if (simNow() - lastSampleAt >= sampleIntervalMs) {
         lastSampleAt = simNow();
         if (p) record("pos");
+      }
+
+      // Streaming flush: fire-and-forget relative to the frame loop (never
+      // blocks a frame), single chunk in flight, degrade-on-first-failure.
+      if (
+        onFlush &&
+        !flushDegraded &&
+        !inFlight &&
+        Date.now() - lastFlushWall >= flushIntervalMs &&
+        telemetry.events.length > flushedCursor
+      ) {
+        const upTo = telemetry.events.length;
+        const chunk = telemetry.events.slice(flushedCursor, upTo);
+        inFlight = onFlush(chunk)
+          .then(() => {
+            flushedCursor = upTo;
+          })
+          .catch(() => {
+            flushDegraded = true;
+          })
+          .finally(() => {
+            inFlight = null;
+            lastFlushWall = Date.now();
+          });
       }
 
       if (simNow() - simStart > timeoutSimMs) finish("timeout");
@@ -230,6 +291,7 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
       );
       game.events.on(Phaser.Core.Events.POST_STEP, onPostStep);
     } catch (err) {
+      setSimPace(null);
       reject(err);
     }
   });

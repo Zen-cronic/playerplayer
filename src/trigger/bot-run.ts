@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { metadata, task } from "@trigger.dev/sdk";
 import { swarmQueue } from "./queues";
 import { phaserAdapter } from "../game/adapter";
-import { insertRunTelemetry } from "../lib/ingest";
+import { insertEventChunk, insertRunTelemetry } from "../lib/ingest";
 import { logAgentEvent } from "../lib/agent-log";
 import { applyMutations, type Mutation } from "../game/mutate";
 import type { BotArchetype } from "../game/bot";
@@ -18,6 +18,19 @@ export interface BotRunPayload {
   /** Mutations travel in the payload — task workers share no filesystem, so each run applies them locally. */
   mutations?: Mutation[];
   timeoutSimMs?: number;
+  /** Live mode: approximate realtime multiple (1..20). Only meaningful with stream. */
+  pace?: number;
+  /**
+   * Live mode: stream event chunks into ClickHouse mid-run instead of one
+   * insert at the end. Ops-feed semantics, NOT experiment-grade: chat swarms
+   * and the nightly canary never set this, so their exactly-once story is
+   * untouched; a dead streaming run leaves an orphan event-prefix that is
+   * invisible to the runs explorer (it joins on game_runs) and bounded inside
+   * `live-*` experiments, which are excluded from the registry and chat.
+   * Paced runs are also not frame-deterministic (see headless-context) —
+   * another reason the live lane never feeds matched-seed comparisons.
+   */
+  stream?: boolean;
 }
 
 // One bot playthrough per task run — the swarm is a batch.trigger of these.
@@ -56,18 +69,34 @@ export const botRun = task({
       );
     }
 
+    // Streaming runs mint the runId BEFORE the run so mid-run chunks land under
+    // it; the non-streaming path stays byte-identical to before (id at end).
+    const streaming = payload.stream === true;
+    const earlyRunId = streaming ? randomUUID() : null;
+    const chunkCtx = earlyRunId
+      ? {
+          experimentId: payload.experimentId,
+          variant: payload.variant,
+          runId: earlyRunId,
+          archetype: payload.archetype ?? "explorer",
+        }
+      : null;
+
     const result = await phaserAdapter.run({
       seed: payload.seed,
       archetype: payload.archetype,
       level,
       mapPath,
       timeoutSimMs: payload.timeoutSimMs,
+      pace: streaming ? payload.pace : undefined,
+      onFlush: chunkCtx ? (chunk) => insertEventChunk(chunkCtx, chunk) : undefined,
     });
 
-    const runId = randomUUID();
+    const runId = earlyRunId ?? randomUUID();
     const { eventRows } = await insertRunTelemetry(
       { experimentId: payload.experimentId, variant: payload.variant, runId },
       result,
+      { skipEventRows: result.flushedEvents },
     );
 
     // Light up the parent's progress (run-experiment, regression-watch, or
