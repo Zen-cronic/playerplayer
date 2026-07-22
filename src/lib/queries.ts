@@ -1,4 +1,4 @@
-import { getClickHouse } from "./clickhouse";
+import { getClickHouse, READ_SETTINGS } from "./clickhouse";
 
 export interface HeatmapCell {
   gx: number;
@@ -32,6 +32,7 @@ export async function heatmap(
     `,
     query_params: { experimentId, variant, room },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{ gx: number; gy: number; visits: string; deaths: string; damage: string; coin_pickups: string }>();
   return rows.map((r) => ({
@@ -80,6 +81,7 @@ export async function heatmapDelta(
     `,
     query_params: { experimentId, variantA, variantB, room },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{ gx: number; gy: number; deaths_a: string; deaths_b: string; visits_a: string; visits_b: string }>();
   return rows.map((r) => ({
@@ -113,6 +115,7 @@ export async function listExperimentRefs(limit = 24): Promise<ExperimentRef[]> {
     `,
     query_params: { limit },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{ experiment_id: string; variants: string[]; runs: string }>();
   return rows.map((r) => ({
@@ -165,6 +168,7 @@ export async function runCounts(experimentId: string): Promise<Record<string, nu
     `,
     query_params: { experimentId },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{ variant: string; n: string }>();
   return Object.fromEntries(rows.map((r) => [r.variant, Number(r.n)]));
@@ -196,6 +200,7 @@ export async function experimentRows(limit = 50): Promise<ExperimentRow[]> {
     `,
     query_params: { limit },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{
     experiment_id: string;
@@ -243,6 +248,7 @@ export async function watchReportRows(limit = 14): Promise<WatchReportRow[]> {
     `,
     query_params: { limit },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{
     date: string;
@@ -307,6 +313,7 @@ export async function runsAtCell(
     `,
     query_params: { experimentId, variant, room, gx, gy, limit },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{
     run_id: string;
@@ -367,6 +374,7 @@ export async function runTrails(
     `,
     query_params: { experimentId, variant, runIds, bucketMs },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{
     run_id: string;
@@ -388,6 +396,7 @@ export async function runTrails(
     `,
     query_params: { experimentId, variant, runIds },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const deaths = new Map(
     (await deathRs.json<{ run_id: string; x: number; y: number }>()).map((d) => [
@@ -442,6 +451,7 @@ export async function latestHumanRun(): Promise<HumanRun | null> {
       LIMIT 1
     `,
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const [r] = await rs.json<{
     run_id: string;
@@ -501,6 +511,7 @@ export async function deathsNear(
       r: radiusTiles * 16,
     },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{ archetype: string; deaths_nearby: string; runs: string }>();
   const byArchetype = rows.map((r) => ({
@@ -552,6 +563,7 @@ export async function progressionFunnel(
     `,
     query_params: { experimentId, variant },
     format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
   });
   const rows = await rs.json<{ started: string; coin_1: string; coin_3: string; coin_5: string }>();
   const r = rows[0];

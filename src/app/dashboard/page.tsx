@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { experimentRows, watchReportRows } from "../../lib/queries";
-import { getClickHouse } from "../../lib/clickhouse";
+import { getClickHouse, READ_SETTINGS } from "../../lib/clickhouse";
 
 // Mission control, not the pitch: the chat is where questions get answered.
 // This is the registry — what has run, and what the nightly canary saw.
@@ -12,6 +12,7 @@ async function stackTotals() {
     const rs = await getClickHouse().query({
       query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM bot_events",
       format: "JSONEachRow",
+      clickhouse_settings: READ_SETTINGS,
     });
     const [row] = await rs.json<{ events: string; runs: string }>();
     return {

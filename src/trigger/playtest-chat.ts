@@ -16,7 +16,7 @@ import {
   runCounts,
   runTrails,
 } from "../lib/queries";
-import { getClickHouse } from "../lib/clickhouse";
+import { getClickHouse, READ_SETTINGS } from "../lib/clickhouse";
 import { vendorMapPath, type Mutation } from "../game/mutate";
 import { ARCHETYPES } from "../game/bot";
 
@@ -105,6 +105,16 @@ function digest(header: string, room: string, cells: CellLike[], deathsOf: (c: C
   return lines.filter(Boolean).join("\n");
 }
 
+// Read tools fail safe: a ClickHouse error becomes { error } (the shape the
+// copilot already renders as a one-line note and the model paraphrases) rather
+// than throwing into the agent loop. The raw error goes to the worker log ONLY —
+// a connection error can carry the host, which must never reach the model or a
+// rendered card.
+function readFailed(where: string, e: unknown): { error: string } {
+  console.error(`[playtest-chat] ${where} read failed:`, e);
+  return { error: `couldn't read ${where} from ClickHouse just now — try again in a moment` };
+}
+
 const tools = {
   describeLevel: tool({
     description:
@@ -170,21 +180,25 @@ const tools = {
       room: z.string().default("Level1"),
     }),
     execute: async ({ experimentId, variant, room }) => {
-      const started = Date.now();
-      const { ref, fellBack, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
-      if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
-      const v = pickVariant(ref, variant);
-      const [cells, counts] = await Promise.all([heatmap(ref.experimentId, v, room), runCounts(ref.experimentId)]);
-      return {
-        experimentId: ref.experimentId,
-        variant: v,
-        room,
-        tileSize: 16,
-        runs: counts[v] ?? 0,
-        queryMs: Date.now() - started,
-        cells,
-        ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
-      };
+      try {
+        const started = Date.now();
+        const { ref, fellBack, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
+        if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
+        const v = pickVariant(ref, variant);
+        const [cells, counts] = await Promise.all([heatmap(ref.experimentId, v, room), runCounts(ref.experimentId)]);
+        return {
+          experimentId: ref.experimentId,
+          variant: v,
+          room,
+          tileSize: 16,
+          runs: counts[v] ?? 0,
+          queryMs: Date.now() - started,
+          cells,
+          ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
+        };
+      } catch (e) {
+        return readFailed("the heatmap", e);
+      }
     },
     toModelOutput: ({ output }) => {
       const o = output as { error?: string; room?: string; variant?: string; runs?: number; cells?: CellLike[] };
@@ -212,35 +226,39 @@ const tools = {
       room: z.string().default("Level1"),
     }),
     execute: async ({ experimentId, variantA, variantB, room }) => {
-      const started = Date.now();
-      const { ref, fellBack, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
-      if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
-      const a = pickVariant(ref, variantA);
-      const b =
-        variantB && ref.variants.includes(variantB)
-          ? variantB
-          : (ref.variants.find((x) => x !== a) ?? a);
-      const [cells, counts] = await Promise.all([
-        heatmapDelta(ref.experimentId, a, b, room),
-        runCounts(ref.experimentId),
-      ]);
-      const runsA = counts[a] ?? 0;
-      const runsB = counts[b] ?? 0;
-      const deathsA = cells.reduce((s, c) => s + c.deathsA, 0);
-      const deathsB = cells.reduce((s, c) => s + c.deathsB, 0);
-      return {
-        experimentId: ref.experimentId,
-        variantA: a,
-        variantB: b,
-        room,
-        tileSize: 16,
-        runsA,
-        runsB,
-        queryMs: Date.now() - started,
-        totals: { deathsA, deathsB, deathRateA: runsA ? deathsA / runsA : 0, deathRateB: runsB ? deathsB / runsB : 0 },
-        cells,
-        ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
-      };
+      try {
+        const started = Date.now();
+        const { ref, fellBack, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
+        if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
+        const a = pickVariant(ref, variantA);
+        const b =
+          variantB && ref.variants.includes(variantB)
+            ? variantB
+            : (ref.variants.find((x) => x !== a) ?? a);
+        const [cells, counts] = await Promise.all([
+          heatmapDelta(ref.experimentId, a, b, room),
+          runCounts(ref.experimentId),
+        ]);
+        const runsA = counts[a] ?? 0;
+        const runsB = counts[b] ?? 0;
+        const deathsA = cells.reduce((s, c) => s + c.deathsA, 0);
+        const deathsB = cells.reduce((s, c) => s + c.deathsB, 0);
+        return {
+          experimentId: ref.experimentId,
+          variantA: a,
+          variantB: b,
+          room,
+          tileSize: 16,
+          runsA,
+          runsB,
+          queryMs: Date.now() - started,
+          totals: { deathsA, deathsB, deathRateA: runsA ? deathsA / runsA : 0, deathRateB: runsB ? deathsB / runsB : 0 },
+          cells,
+          ...(fellBack ? { note: `"${experimentId}" has no runs; showing most recent experiment "${ref.experimentId}"` } : {}),
+        };
+      } catch (e) {
+        return readFailed("the delta", e);
+      }
     },
     toModelOutput: ({ output }) => {
       const o = output as {
@@ -287,42 +305,46 @@ const tools = {
       variant: z.string().optional(),
     }),
     execute: async ({ experimentId, variant }) => {
-      const human = await latestHumanRun();
-      if (!human) {
-        return { error: "no human run recorded yet — play the level first, then ask again" };
+      try {
+        const human = await latestHumanRun();
+        if (!human) {
+          return { error: "no human run recorded yet — play the level first, then ask again" };
+        }
+        // Never compare the player against their own session — resolve to a
+        // real bot swarm even though human runs share the same tables.
+        const { ref } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
+        if (!ref) return { error: "no swarm experiments to compare against yet" };
+        const v = pickVariant(ref, variant);
+        const room = human.room || "Level1";
+
+        const [cells, counts, trails, nearby] = await Promise.all([
+          heatmap(ref.experimentId, v, room),
+          runCounts(ref.experimentId),
+          runTrails(HUMAN_EXPERIMENT, "baseline", [human.runId]),
+          human.death
+            ? deathsNear(ref.experimentId, v, room, human.death.x, human.death.y)
+            : Promise.resolve(null),
+        ]);
+
+        return {
+          experimentId: ref.experimentId,
+          variant: v,
+          room,
+          tileSize: 16,
+          runs: counts[v] ?? 0,
+          cells,
+          human: {
+            runId: human.runId,
+            survivedMs: human.lastT,
+            coins: human.coins,
+            died: Boolean(human.death),
+          },
+          humanTrail: trails[0] ?? null,
+          nearby,
+        };
+      } catch (e) {
+        return readFailed("your run comparison", e);
       }
-      // Never compare the player against their own session — resolve to a
-      // real bot swarm even though human runs share the same tables.
-      const { ref } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
-      if (!ref) return { error: "no swarm experiments to compare against yet" };
-      const v = pickVariant(ref, variant);
-      const room = human.room || "Level1";
-
-      const [cells, counts, trails, nearby] = await Promise.all([
-        heatmap(ref.experimentId, v, room),
-        runCounts(ref.experimentId),
-        runTrails(HUMAN_EXPERIMENT, "baseline", [human.runId]),
-        human.death
-          ? deathsNear(ref.experimentId, v, room, human.death.x, human.death.y)
-          : Promise.resolve(null),
-      ]);
-
-      return {
-        experimentId: ref.experimentId,
-        variant: v,
-        room,
-        tileSize: 16,
-        runs: counts[v] ?? 0,
-        cells,
-        human: {
-          runId: human.runId,
-          survivedMs: human.lastT,
-          coins: human.coins,
-          died: Boolean(human.death),
-        },
-        humanTrail: trails[0] ?? null,
-        nearby,
-      };
     },
     toModelOutput: ({ output }) => {
       const o = output as {
@@ -368,14 +390,18 @@ const tools = {
       variant: z.string().optional().describe("omit for baseline"),
     }),
     execute: async ({ experimentId, variant }) => {
-      const { ref, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
-      if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
-      const v = pickVariant(ref, variant);
-      return {
-        experimentId: ref.experimentId,
-        variant: v,
-        stages: await progressionFunnel(ref.experimentId, v),
-      };
+      try {
+        const { ref, known } = await resolveExperiment(experimentId, { exclude: [HUMAN_EXPERIMENT] });
+        if (!ref) return { error: "no experiments recorded yet — run a swarm first", known };
+        const v = pickVariant(ref, variant);
+        return {
+          experimentId: ref.experimentId,
+          variant: v,
+          stages: await progressionFunnel(ref.experimentId, v),
+        };
+      } catch (e) {
+        return readFailed("the funnel", e);
+      }
     },
   }),
 
@@ -393,16 +419,21 @@ const tools = {
       "Recent nightly regression-watch reports: a fixed-seed canary swarm replays the level every night; verdicts are stable/shifted/easier/harder night-over-night.",
     inputSchema: z.object({}),
     execute: async () => {
-      const rs = await getClickHouse().query({
-        query: `
-          SELECT date, prev_date, room, runs, death_rate, prev_death_rate, verdict, cells_changed
-          FROM watch_reports FINAL
-          ORDER BY date DESC
-          LIMIT 14
-        `,
-        format: "JSONEachRow",
-      });
-      return { reports: await rs.json() };
+      try {
+        const rs = await getClickHouse().query({
+          query: `
+            SELECT date, prev_date, room, runs, death_rate, prev_death_rate, verdict, cells_changed
+            FROM watch_reports FINAL
+            ORDER BY date DESC
+            LIMIT 14
+          `,
+          format: "JSONEachRow",
+          clickhouse_settings: READ_SETTINGS,
+        });
+        return { reports: await rs.json() };
+      } catch (e) {
+        return readFailed("the regression watch", e);
+      }
     },
   }),
 
@@ -410,22 +441,27 @@ const tools = {
     description: "List recent experiments with per-variant run and death counts.",
     inputSchema: z.object({}),
     execute: async () => {
-      const rs = await getClickHouse().query({
-        query: `
-          SELECT
-            experiment_id,
-            variant,
-            count() AS runs,
-            countIf(verdict = 'lose') AS deaths,
-            max(inserted_at) AS last_run
-          FROM bot_runs
-          GROUP BY experiment_id, variant
-          ORDER BY last_run DESC
-          LIMIT 24
-        `,
-        format: "JSONEachRow",
-      });
-      return { experiments: await rs.json() };
+      try {
+        const rs = await getClickHouse().query({
+          query: `
+            SELECT
+              experiment_id,
+              variant,
+              count() AS runs,
+              countIf(verdict = 'lose') AS deaths,
+              max(inserted_at) AS last_run
+            FROM bot_runs
+            GROUP BY experiment_id, variant
+            ORDER BY last_run DESC
+            LIMIT 24
+          `,
+          format: "JSONEachRow",
+          clickhouse_settings: READ_SETTINGS,
+        });
+        return { experiments: await rs.json() };
+      } catch (e) {
+        return readFailed("the experiment list", e);
+      }
     },
   }),
 };

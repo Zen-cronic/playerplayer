@@ -3,7 +3,7 @@
 import { auth } from "@trigger.dev/sdk";
 import { chat } from "@trigger.dev/sdk/ai";
 import { runsAtCell, runTrails, type CulpritRun, type RunTrail } from "../lib/queries";
-import { getClickHouse } from "../lib/clickhouse";
+import { getClickHouse, READ_SETTINGS } from "../lib/clickhouse";
 
 // Creates the Session + first run; idempotent on (env, chatId).
 export const startChatSession = chat.createStartSessionAction("playtest-chat");
@@ -31,6 +31,7 @@ export async function fetchStackHealth(): Promise<{
     const rs = await getClickHouse().query({
       query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM bot_events",
       format: "JSONEachRow",
+      clickhouse_settings: READ_SETTINGS,
     });
     const [row] = await rs.json<{ events: string; runs: string }>();
     return {
