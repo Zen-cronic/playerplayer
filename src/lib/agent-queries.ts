@@ -106,6 +106,69 @@ export async function agentTimeline(sessionId: string): Promise<AgentTimelineRow
   }));
 }
 
+// Lineage: the agent-side trail for one experiment — who asked for it, when it
+// was approved, and what the tools reported. Joined on the experiment_id the
+// tool wrapper extracts from tool outputs.
+export interface LineageStep {
+  sessionId: string;
+  turn: number;
+  kind: string;
+  tool: string;
+  content: string;
+  ts: string;
+}
+
+export async function experimentAgentTrail(experimentId: string): Promise<LineageStep[]> {
+  const rs = await getClickHouse().query({
+    query: `
+      SELECT session_id, turn, kind, tool, content, toString(ts) AS ts
+      FROM agent_events
+      WHERE experiment_id = {experimentId: String}
+        AND kind IN ('approval', 'tool_call', 'tool_result', 'error')
+      ORDER BY ts
+      LIMIT 50
+    `,
+    query_params: { experimentId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const rows = await rs.json<{
+    session_id: string;
+    turn: number;
+    kind: string;
+    tool: string;
+    content: string;
+    ts: string;
+  }>();
+  return rows.map((r) => ({
+    sessionId: r.session_id,
+    turn: Number(r.turn),
+    kind: r.kind,
+    tool: r.tool,
+    content: r.content,
+    ts: r.ts,
+  }));
+}
+
+export async function promptForTurn(
+  sessionId: string,
+  turn: number,
+): Promise<{ content: string; ts: string } | null> {
+  const rs = await getClickHouse().query({
+    query: `
+      SELECT content, toString(ts) AS ts
+      FROM agent_events
+      WHERE session_id = {sessionId: String} AND turn = {turn: UInt16} AND kind = 'prompt'
+      LIMIT 1
+    `,
+    query_params: { sessionId, turn },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const [row] = await rs.json<{ content: string; ts: string }>();
+  return row ?? null;
+}
+
 // Recent bot-run failures land with an empty session id — surfaced separately
 // so worker errors are visible without polluting the session list.
 export interface AgentErrorRow {

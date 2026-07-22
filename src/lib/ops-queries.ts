@@ -162,6 +162,25 @@ export interface RunEventRow {
   detail: string;
 }
 
+// Lineage helper: when the swarm for an experiment actually executed, compactly.
+export async function runsSpan(
+  experimentId: string,
+): Promise<{ runs: number; first: string; last: string } | null> {
+  const rs = await getClickHouse().query({
+    query: `
+      SELECT count() AS runs, toString(min(inserted_at)) AS first, toString(max(inserted_at)) AS last
+      FROM game_runs
+      WHERE game_id = {gameId: String} AND experiment_id = {experimentId: String}
+    `,
+    query_params: { gameId: DEMO_GAME_ID, experimentId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const [row] = await rs.json<{ runs: string; first: string; last: string }>();
+  if (!row || Number(row.runs) === 0) return null;
+  return { runs: Number(row.runs), first: row.first, last: row.last };
+}
+
 // Live-ops panel reads. All four snapshot queries filter one live-* experiment
 // via the (game_id, experiment_id) key prefix, so a 1.5s poll cadence is a
 // handful of tiny scans, guarded by READ_SETTINGS like every other read.

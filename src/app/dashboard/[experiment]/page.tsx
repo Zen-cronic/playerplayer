@@ -8,6 +8,8 @@ import {
   progressionFunnel,
   runCounts,
 } from "../../../lib/queries";
+import { experimentAgentTrail, promptForTurn, type LineageStep } from "../../../lib/agent-queries";
+import { runsSpan } from "../../../lib/ops-queries";
 import { HeatmapCard, DeltaCard, FunnelCard } from "playtest-copilot";
 import { AppShell } from "../../../components/app-shell";
 
@@ -35,12 +37,34 @@ export default async function ExperimentPage({
   const variantB = ref.variants.find((v) => v !== variantA);
 
   const started = Date.now();
-  const [cells, funnel, deltaCells] = await Promise.all([
+  const [cells, funnel, deltaCells, trail, span] = await Promise.all([
     heatmap(experimentId, variantA, ROOM),
     progressionFunnel(experimentId, variantA),
     variantB ? heatmapDelta(experimentId, variantA, variantB, ROOM) : Promise.resolve(null),
+    experimentAgentTrail(experimentId).catch(() => [] as LineageStep[]),
+    runsSpan(experimentId).catch(() => null),
   ]);
   const queryMs = Date.now() - started;
+
+  // Lineage pieces: only rendered when the agent actually drove this
+  // experiment — dashboard-seeded experiments have no trail and must not look
+  // broken. The prompt is user-authored, so it follows the same privacy gate
+  // as /dashboard/agent.
+  const firstTrail = trail[0];
+  const prompt = firstTrail
+    ? await promptForTurn(firstTrail.sessionId, firstTrail.turn).catch(() => null)
+    : null;
+  const showUserContent = process.env.AGENT_LOG_PUBLIC === "1";
+  const approvals = trail.filter((t) => t.kind === "approval");
+  const spanSeconds =
+    span && span.first !== span.last
+      ? Math.max(1, Math.round((Date.parse(span.last) - Date.parse(span.first)) / 1000))
+      : null;
+  const deathsA = deltaCells?.reduce((s, c) => s + c.deathsA, 0) ?? 0;
+  const deathsB = deltaCells?.reduce((s, c) => s + c.deathsB, 0) ?? 0;
+  const rateA = (counts[variantA] ?? 0) > 0 ? deathsA / (counts[variantA] ?? 1) : 0;
+  const rateB = variantB && (counts[variantB] ?? 0) > 0 ? deathsB / (counts[variantB] ?? 1) : 0;
+  const deltaPp = variantB ? Math.round((rateB - rateA) * 100) : 0;
 
   return (
     <AppShell active="analytics">
@@ -86,6 +110,69 @@ export default async function ExperimentPage({
             <span className="metric-note">Three ClickHouse reads in parallel</span>
           </div>
         </section>
+
+        {trail.length > 0 && (
+          <section className="section-block" aria-labelledby="lineage-heading">
+            <header className="section-heading">
+              <span className="section-index">00</span>
+              <h2 id="lineage-heading">Lineage</h2>
+              <p>How this experiment came to exist — prompt, approval, swarm, verdict.</p>
+            </header>
+            <ul className="watch-list">
+              <li className="watch-row">
+                <span className="watch-date">{(prompt?.ts ?? firstTrail.ts).slice(0, 19)}</span>
+                <span className="verdict verdict-stable">prompt</span>
+                <span className="watch-summary">
+                  {prompt
+                    ? showUserContent
+                      ? prompt.content
+                      : "designer prompt (content hidden · AGENT_LOG_PUBLIC=0)"
+                    : "asked in chat"}
+                </span>
+                <span className="watch-detail">
+                  session {firstTrail.sessionId.slice(0, 10)} · turn {firstTrail.turn}
+                </span>
+              </li>
+              {approvals.map((a, i) => (
+                <li key={`appr-${i}`} className="watch-row">
+                  <span className="watch-date">{a.ts.slice(0, 19)}</span>
+                  <span className="verdict verdict-first-night">approval</span>
+                  <span className="watch-summary">
+                    {a.tool} · {a.content}
+                  </span>
+                  <span className="watch-detail">human-in-the-loop gate</span>
+                </li>
+              ))}
+              {span && (
+                <li className="watch-row">
+                  <span className="watch-date">{span.first.slice(0, 19)}</span>
+                  <span className="verdict verdict-shifted">swarm</span>
+                  <span className="watch-summary">
+                    {span.runs} runs{spanSeconds ? ` over ${spanSeconds}s` : ""}
+                  </span>
+                  <span className="watch-detail">matched seeds, both variants</span>
+                </li>
+              )}
+              {deltaCells && variantB && (
+                <li className="watch-row">
+                  <span className="watch-date">{span?.last.slice(0, 19) ?? ""}</span>
+                  <span
+                    className={`verdict ${deltaPp < 0 ? "verdict-easier" : deltaPp > 0 ? "verdict-harder" : "verdict-stable"}`}
+                  >
+                    verdict
+                  </span>
+                  <span className="watch-summary">
+                    {Math.round(rateA * 100)}% → {Math.round(rateB * 100)}% deaths
+                    {deltaPp !== 0
+                      ? ` (${deltaPp > 0 ? "up" : "down"} ${Math.abs(deltaPp)}pp)`
+                      : " (no clear change)"}
+                  </span>
+                  <span className="watch-detail">from the delta card below</span>
+                </li>
+              )}
+            </ul>
+          </section>
+        )}
 
         <div className="visualization-stack">
           {deltaCells && variantB && (
