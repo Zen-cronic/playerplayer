@@ -59,11 +59,13 @@ analytical view the chat renders — no OLTP tier in the hot path.
   **no schema migration** — so the ghost-overlay comparison is just the existing
   heatmap MV plus a primary-key replay, keyed on a new archetype value.
 
-Measured on ClickHouse Cloud during development: **~217,000 events across ~300
-runs**, with heatmap queries returning in the **low-hundreds of milliseconds
-during active ingest** — the live figures are shown in the app header and on
-every card footer (`N runs · M cells · <table (engine)> · Xms`), so a judge can
-verify the database is doing real work, not decorating a toy table.
+Measured on ClickHouse Cloud during development: **over 235,000 events across
+340+ runs** (and still growing as the swarm runs), with heatmap reads over the
+materialized-view aggregate returning in **≈70 ms at rest and the low-hundreds
+of milliseconds during active ingest** — the live figures are shown in the app
+header and on every card footer (`N runs · M cells · <table (engine)> · Xms`),
+so a judge can verify the database is doing real work, not decorating a toy
+table.
 
 ## How Trigger.dev is used (orchestration, load-bearing)
 
