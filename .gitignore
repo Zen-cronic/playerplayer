@@ -17,6 +17,9 @@ CLAUDE.md
 AGENTS.md
 PLAN.md
 skills-lock.json
+docs/overnight/
+OVERNIGHT.md
+OVERNIGHT*.md
 
 .playwright-mcp/
 playwright-report/
