@@ -66,8 +66,8 @@ analytical view the chat renders — no OLTP tier in the hot path.
   **no schema migration** — so the ghost-overlay comparison is just the existing
   heatmap MV plus a primary-key replay, keyed on a new archetype value.
 
-Measured on ClickHouse Cloud during development: **over 450,000 events across
-620+ runs** (and still growing as the swarm runs). Heatmap reads over the
+Measured on ClickHouse Cloud during development: **over 600,000 events across
+950+ runs** (and still growing as the swarm runs). Heatmap reads over the
 materialized-view aggregate return in **≈70 ms at rest, and hold a median of
 ~85 ms (p90 ~140 ms) even during active ingest** (measured while a loader wrote
 ~900 rows/run continuously) — the insert-time MV keeps reads fast while the swarm
