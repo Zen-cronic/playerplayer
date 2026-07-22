@@ -17,6 +17,7 @@ import {
   runTrails,
 } from "../lib/queries";
 import { getClickHouse, READ_SETTINGS } from "../lib/clickhouse";
+import { makeTurnLogger } from "../lib/agent-log";
 import { vendorMapPath, type Mutation } from "../game/mutate";
 import { ARCHETYPES } from "../game/bot";
 
@@ -115,7 +116,7 @@ function readFailed(where: string, e: unknown): { error: string } {
   return { error: `couldn't read ${where} from ClickHouse just now — try again in a moment` };
 }
 
-const tools = {
+const baseTools = {
   describeLevel: tool({
     description:
       "Read a level's layout: dimensions, spawn points, and every object (enemies, coins, pickups) with px and tile coordinates. Use before proposing any mutation.",
@@ -496,7 +497,38 @@ How to answer:
 
 export const playtestChat = chat.agent({
   id: "playtest-chat",
-  tools,
+  // Per-turn tools factory: each turn wraps the base tools with a logger held
+  // in closures (chatId/turn captured), so every tool call, result, and
+  // approval lands in agent_events — ClickHouse observing the agent itself.
+  // No module-global turn state: concurrent sessions can't race.
+  tools: ({ chatId, turn }) => makeTurnLogger({ chatId, turn, seqBase: 100 }).wrapTools(baseTools),
+  onTurnStart: async ({ chatId, turn, runId, uiMessages }) => {
+    // HITL continuation turns re-enter without a fresh user prompt — skip.
+    const last = uiMessages[uiMessages.length - 1];
+    if (last?.role !== "user") return;
+    const text = last.parts
+      .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+      .map((p) => p.text)
+      .join(" ");
+    if (text) makeTurnLogger({ chatId, runId, turn }).log({ kind: "prompt", content: text });
+  },
+  onTurnComplete: async ({ chatId, turn, runId, responseMessage }) => {
+    const logger = makeTurnLogger({ chatId, runId, turn, seqBase: 900 });
+    for (const part of responseMessage?.parts ?? []) {
+      const type = typeof part.type === "string" ? part.type : "";
+      if (!type.startsWith("tool-")) continue;
+      const state = (part as { state?: string }).state;
+      // A paused turn's response carries approval-requested; after approve the
+      // merged part becomes output-available, so each state logs exactly once.
+      if (state === "approval-requested") logger.log({ kind: "approval", tool: type.slice(5), content: "requested" });
+      if (state === "output-denied") logger.log({ kind: "approval", tool: type.slice(5), content: "denied" });
+    }
+    const text = (responseMessage?.parts ?? [])
+      .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+      .map((p) => p.text)
+      .join(" ");
+    if (text) logger.log({ kind: "response", content: text });
+  },
   run: async ({ messages, tools, signal }) =>
     streamText({
       ...chat.toStreamTextOptions({ tools }),

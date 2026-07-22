@@ -5,6 +5,7 @@ import { task } from "@trigger.dev/sdk";
 import { swarmQueue } from "./queues";
 import { phaserAdapter } from "../game/adapter";
 import { insertRunTelemetry } from "../lib/ingest";
+import { logAgentEvent } from "../lib/agent-log";
 import { applyMutations, type Mutation } from "../game/mutate";
 import type { BotArchetype } from "../game/bot";
 
@@ -31,6 +32,19 @@ export const botRun = task({
   // Default lane; live-swarm overrides per-trigger onto the live lane.
   queue: swarmQueue,
   retry: { maxAttempts: 1 },
+  // A failed bot is tolerated in the cohort (see above) but never silent: the
+  // error lands in agent_events, visible on /dashboard/agent. logAgentEvent
+  // swallows its own failures and the platform ignores onFailure throws, so
+  // this can't affect the run outcome or the at-most-once contract.
+  onFailure: async ({ payload, error, ctx }) => {
+    logAgentEvent({
+      kind: "error",
+      tool: "bot-run",
+      runId: ctx.run.id,
+      experimentId: (payload as BotRunPayload).experimentId,
+      content: error instanceof Error ? error.message : String(error),
+    });
+  },
   run: async (payload: BotRunPayload) => {
     const level = payload.level ?? "Level1";
     let mapPath: string | undefined;
