@@ -49,14 +49,24 @@ const EXPERIMENTS: DemoExperiment[] = [
   },
   {
     id: "crowd-the-corridor",
-    // Pile all 6 slimes onto the corridor chokepoint every bot must cross.
-    mutations: Array.from({ length: 6 }, (_, i) => ({
-      op: "move_object",
-      objectType: "slime",
-      index: i,
-      toX: t(21 + (i % 3)),
-      toY: t(15 + Math.floor(i / 3)),
-    })),
+    // Pile all 6 slimes AND both enemies tight on the corridor chokepoint every
+    // bot funnels through — an unavoidable gauntlet that clearly makes it deadlier.
+    mutations: [
+      ...Array.from({ length: 6 }, (_, i) => ({
+        op: "move_object" as const,
+        objectType: "slime",
+        index: i,
+        toX: t(21 + (i % 3)),
+        toY: t(14 + Math.floor(i / 3)),
+      })),
+      ...Array.from({ length: 2 }, (_, i) => ({
+        op: "move_object" as const,
+        objectType: "enemy",
+        index: i,
+        toX: t(22 + i),
+        toY: t(16),
+      })),
+    ],
   },
 ];
 
