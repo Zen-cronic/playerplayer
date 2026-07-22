@@ -19,7 +19,9 @@ export interface CanvasTrail {
   death: { x: number; y: number } | null;
 }
 
-const TRAIL_COLORS: Record<string, string> = {
+// The archetype → trail color mapping, shared with the culprit-run legend in
+// heatmap-card so the drawn trail and its label can never drift apart.
+export const TRAIL_COLORS: Record<string, string> = {
   rusher: "#fb923c",
   explorer: "#22d3ee",
   cautious: "#a3e635",
@@ -76,11 +78,6 @@ export function LevelCanvas({
   // 0..1 sweep used to reveal the trails; resets whenever the trails change.
   const [progress, setProgress] = useState(1);
 
-  const longest = useMemo(
-    () => Math.max(1, ...(trails ?? []).map((t) => t.points.length)),
-    [trails],
-  );
-
   useEffect(() => {
     if (!trails || trails.length === 0) return;
     setProgress(0);
@@ -113,7 +110,7 @@ export function LevelCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const { widthTiles, heightTiles, walls, objects } = geometry;
+    const { widthTiles, heightTiles, walls } = geometry;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = widthTiles * scale * dpr;
     canvas.height = heightTiles * scale * dpr;
@@ -186,9 +183,7 @@ export function LevelCanvas({
       }
       ctx.globalAlpha = 1;
     }
-    void objects;
-    void longest;
-  }, [geometry, cellColors, scale, trails, progress, longest, keepCellColors]);
+  }, [geometry, cellColors, scale, trails, progress, keepCellColors]);
 
   return (
     <div ref={wrapRef} className="relative w-full">

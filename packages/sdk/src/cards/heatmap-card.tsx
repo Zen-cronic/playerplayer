@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useTransition } from "react";
-import { LevelCanvas, type CanvasTrail } from "../level/level-canvas";
+import { LevelCanvas, TRAIL_COLORS, type CanvasTrail } from "../level/level-canvas";
 import { Provenance } from "./provenance";
 
 // The drill-down is injected rather than imported: this component ships in the
@@ -135,7 +135,7 @@ export function HeatmapCard({
           <ul className="space-y-0.5 text-zinc-400">
             {replay.runs.map((r) => (
               <li key={r.runId}>
-                <span style={{ color: TRAIL_LEGEND[r.archetype] }}>{r.archetype}</span> · seed{" "}
+                <span style={{ color: TRAIL_COLORS[r.archetype] }}>{r.archetype}</span> · seed{" "}
                 {r.seed} · {r.coins} coins · survived {(r.simMs / 1000).toFixed(1)}s
               </li>
             ))}
@@ -180,9 +180,3 @@ export function HeatmapCard({
     </figure>
   );
 }
-
-const TRAIL_LEGEND: Record<string, string> = {
-  rusher: "#fb923c",
-  explorer: "#22d3ee",
-  cautious: "#a3e635",
-};
