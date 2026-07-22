@@ -54,9 +54,10 @@ export const regressionWatch = schedules.task({
     const prevRate = deathsPrev / runsPrev;
     const nowRate = deathsNow / runsNow;
     const diffPp = (nowRate - prevRate) * 100;
-    const cellsChanged = cells.filter(
-      (c) => c.deathsB / runsNow - c.deathsA / runsPrev !== 0,
-    ).length;
+    // Fixed seeds mean an unchanged level reproduces the same deaths per cell, so
+    // "did this cell change" is an integer compare — no fragile float `!== 0` that
+    // a differing run count (a failed run) could trip on identical death patterns.
+    const cellsChanged = cells.filter((c) => c.deathsB !== c.deathsA).length;
 
     const verdict =
       Math.abs(diffPp) < 4 && cellsChanged === 0

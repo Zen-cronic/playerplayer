@@ -63,9 +63,14 @@ test.describe("smoke: dashboard registry", () => {
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "Experiment registry", level: 1 })).toBeVisible();
 
+    // Skip rather than fail on a cold ClickHouse with no swarm data — this asserts
+    // the drill-in flow, not that seed data exists.
+    const experimentLinks = page.getByRole("cell").getByRole("link");
+    test.skip((await experimentLinks.count()) === 0, "no experiments in ClickHouse yet");
+
     // Click the first experiment link into the drill-in. These are server-
     // rendered CH cards — no LLM — so the flow is deterministic.
-    const firstExperiment = page.getByRole("cell").getByRole("link").first();
+    const firstExperiment = experimentLinks.first();
     const name = (await firstExperiment.textContent())?.trim() ?? "";
     await firstExperiment.click();
 
@@ -88,12 +93,9 @@ test.describe("smoke: dashboard registry", () => {
 
     // A registry row that lists two variants (comma in the variants cell) has a
     // baseline vs mutated comparison, so its drill-in renders the delta card.
-    const link = page
-      .getByRole("row")
-      .filter({ hasText: /, / })
-      .first()
-      .getByRole("link")
-      .first();
+    const twoVariantRow = page.getByRole("row").filter({ hasText: /, / });
+    test.skip((await twoVariantRow.count()) === 0, "no two-variant experiment in ClickHouse yet");
+    const link = twoVariantRow.first().getByRole("link").first();
     await link.click();
 
     await expect(page).toHaveURL(/\/dashboard\/.+/);
