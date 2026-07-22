@@ -457,8 +457,9 @@ const tools = {
               count() AS runs,
               countIf(verdict = 'lose') AS deaths,
               max(inserted_at) AS last_run
-            FROM bot_runs
-            WHERE NOT (lower(experiment_id) LIKE '%smoke%'
+            FROM game_runs
+            WHERE game_id = 'tilemap-demo'
+              AND NOT (lower(experiment_id) LIKE '%smoke%'
               OR lower(experiment_id) LIKE '%bench%'
               OR lower(experiment_id) LIKE '%spike%')
             GROUP BY experiment_id, variant

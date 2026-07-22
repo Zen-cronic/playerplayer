@@ -29,7 +29,7 @@ export async function fetchStackHealth(): Promise<{
   const started = Date.now();
   try {
     const rs = await getClickHouse().query({
-      query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM bot_events",
+      query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM game_events",
       format: "JSONEachRow",
       clickhouse_settings: READ_SETTINGS,
     });

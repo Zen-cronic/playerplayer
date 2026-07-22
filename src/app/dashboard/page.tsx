@@ -11,7 +11,7 @@ async function stackTotals() {
   const started = Date.now();
   try {
     const rs = await getClickHouse().query({
-      query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM bot_events",
+      query: "SELECT count() AS events, uniqExact(run_id) AS runs FROM game_events",
       format: "JSONEachRow",
       clickhouse_settings: READ_SETTINGS,
     });
@@ -76,7 +76,7 @@ export default async function DashboardPage() {
           <div className="metric-cell">
             <span className="metric-label">Experiments</span>
             <strong className="metric-value">{experiments.length}</strong>
-            <span className="metric-note">Server-rendered from bot_runs</span>
+            <span className="metric-note">Server-rendered from game_runs</span>
           </div>
           <div className="metric-cell">
             <span className="metric-label">Observed deaths</span>

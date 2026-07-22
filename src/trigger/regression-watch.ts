@@ -2,7 +2,7 @@ import { schedules } from "@trigger.dev/sdk";
 import { botRun } from "./bot-run";
 import { ARCHETYPES } from "../game/bot";
 import { getClickHouse } from "../lib/clickhouse";
-import { ensureSchema } from "../lib/schema";
+import { ensureMigrations } from "../lib/migrations";
 import { heatmapDelta, runCounts } from "../lib/queries";
 
 const NIGHTLY_EXPERIMENT = "nightly";
@@ -18,7 +18,7 @@ export const regressionWatch = schedules.task({
   run: async (payload) => {
     const date = payload.timestamp.toISOString().slice(0, 10);
 
-    await ensureSchema(getClickHouse());
+    await ensureMigrations(getClickHouse());
 
     await botRun.batchTriggerAndWait(
       Array.from({ length: RUNS_PER_NIGHT }, (_, i) => ({
@@ -83,6 +83,9 @@ export const regressionWatch = schedules.task({
         },
       ],
       format: "JSONEachRow",
+      // Same insert settings as every other write path — this was the one bare
+      // insert in the codebase.
+      clickhouse_settings: { async_insert: 1, wait_for_async_insert: 1 },
     });
 
     return {

@@ -1,4 +1,5 @@
 import { getClickHouse, READ_SETTINGS } from "./clickhouse";
+import { DEMO_GAME_ID } from "./tables";
 
 export interface HeatmapCell {
   gx: number;
@@ -9,10 +10,14 @@ export interface HeatmapCell {
   coin_pickups: number;
 }
 
+// game_heatmap is a generic type-keyed rollup (one `n` counter per cell+type),
+// so "visits/deaths/damage/pickups" are a read-time projection via sumIf — any
+// event type a game emits is aggregated the same way with zero schema work.
 export async function heatmap(
   experimentId: string,
   variant: string,
   room: string,
+  gameId: string = DEMO_GAME_ID,
 ): Promise<HeatmapCell[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
@@ -20,17 +25,18 @@ export async function heatmap(
       SELECT
         gx,
         gy,
-        toUInt64(sum(visits)) AS visits,
-        toUInt64(sum(deaths)) AS deaths,
-        toUInt64(sum(damage)) AS damage,
-        toUInt64(sum(coin_pickups)) AS coin_pickups
-      FROM heatmap_cells
-      WHERE experiment_id = {experimentId: String}
+        toUInt64(sumIf(n, type = 'pos')) AS visits,
+        toUInt64(sumIf(n, type = 'death')) AS deaths,
+        toUInt64(sumIf(n, type = 'damage')) AS damage,
+        toUInt64(sumIf(n, type = 'pickup_coin')) AS coin_pickups
+      FROM game_heatmap
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
         AND variant = {variant: String}
         AND room = {room: String}
       GROUP BY gx, gy
     `,
-    query_params: { experimentId, variant, room },
+    query_params: { gameId, experimentId, variant, room },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -62,6 +68,7 @@ export async function heatmapDelta(
   variantA: string,
   variantB: string,
   room: string,
+  gameId: string = DEMO_GAME_ID,
 ): Promise<DeltaCell[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
@@ -69,17 +76,19 @@ export async function heatmapDelta(
       SELECT
         gx,
         gy,
-        toUInt64(sumIf(deaths, variant = {variantA: String})) AS deaths_a,
-        toUInt64(sumIf(deaths, variant = {variantB: String})) AS deaths_b,
-        toUInt64(sumIf(visits, variant = {variantA: String})) AS visits_a,
-        toUInt64(sumIf(visits, variant = {variantB: String})) AS visits_b
-      FROM heatmap_cells
-      WHERE experiment_id = {experimentId: String}
+        toUInt64(sumIf(n, type = 'death' AND variant = {variantA: String})) AS deaths_a,
+        toUInt64(sumIf(n, type = 'death' AND variant = {variantB: String})) AS deaths_b,
+        toUInt64(sumIf(n, type = 'pos' AND variant = {variantA: String})) AS visits_a,
+        toUInt64(sumIf(n, type = 'pos' AND variant = {variantB: String})) AS visits_b
+      FROM game_heatmap
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
         AND variant IN ({variantA: String}, {variantB: String})
         AND room = {room: String}
+        AND type IN ('death', 'pos')
       GROUP BY gx, gy
     `,
-    query_params: { experimentId, variantA, variantB, room },
+    query_params: { gameId, experimentId, variantA, variantB, room },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -100,7 +109,7 @@ export interface ExperimentRef {
   runs: number;
 }
 
-export async function listExperimentRefs(limit = 24): Promise<ExperimentRef[]> {
+export async function listExperimentRefs(limit = 24, gameId: string = DEMO_GAME_ID): Promise<ExperimentRef[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `
@@ -108,12 +117,13 @@ export async function listExperimentRefs(limit = 24): Promise<ExperimentRef[]> {
         experiment_id,
         groupUniqArray(variant) AS variants,
         count() AS runs
-      FROM bot_runs
+      FROM game_runs
+      WHERE game_id = {gameId: String}
       GROUP BY experiment_id
       ORDER BY max(inserted_at) DESC
       LIMIT {limit: UInt8}
     `,
-    query_params: { limit },
+    query_params: { limit, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -154,24 +164,25 @@ export async function resolveExperiment(
   };
 }
 
-/** Human play sessions share bot_events but must never be mistaken for a swarm. */
+/** Human play sessions share game_events but must never be mistaken for a swarm. */
 export const HUMAN_EXPERIMENT = "human-play";
 
 // The room an experiment mostly ran in. Swarms can span more than one map room
 // (a bot can walk through a door into the next level), so the drill-in picks the
 // modal room rather than assuming Level1. Falls back to Level1 for empty data.
-export async function experimentRoom(experimentId: string): Promise<string> {
+export async function experimentRoom(experimentId: string, gameId: string = DEMO_GAME_ID): Promise<string> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `
       SELECT room, count() AS n
-      FROM bot_events
-      WHERE experiment_id = {experimentId: String}
+      FROM game_events
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
       GROUP BY room
       ORDER BY n DESC
       LIMIT 1
     `,
-    query_params: { experimentId },
+    query_params: { experimentId, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -185,16 +196,17 @@ export function pickVariant(ref: ExperimentRef, requested?: string): string {
   return ref.variants[0] ?? "baseline";
 }
 
-export async function runCounts(experimentId: string): Promise<Record<string, number>> {
+export async function runCounts(experimentId: string, gameId: string = DEMO_GAME_ID): Promise<Record<string, number>> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `
       SELECT variant, count() AS n
-      FROM bot_runs
-      WHERE experiment_id = {experimentId: String}
+      FROM game_runs
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
       GROUP BY variant
     `,
-    query_params: { experimentId },
+    query_params: { experimentId, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -213,7 +225,7 @@ export interface ExperimentRow {
 // Registry view for /dashboard: the design experiments that have run, when, and
 // how lethal each was. Smoke tests and load benchmarks are excluded — they are
 // real swarms but CI/dev artifacts, not experiments a designer would scan.
-export async function experimentRows(limit = 50): Promise<ExperimentRow[]> {
+export async function experimentRows(limit = 50, gameId: string = DEMO_GAME_ID): Promise<ExperimentRow[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `
@@ -223,15 +235,16 @@ export async function experimentRows(limit = 50): Promise<ExperimentRow[]> {
         count() AS runs,
         countIf(verdict = 'lose') AS deaths,
         toString(max(inserted_at)) AS last_run
-      FROM bot_runs
-      WHERE NOT (lower(experiment_id) LIKE '%smoke%'
-        OR lower(experiment_id) LIKE '%bench%'
-        OR lower(experiment_id) LIKE '%spike%')
+      FROM game_runs
+      WHERE game_id = {gameId: String}
+        AND NOT (lower(experiment_id) LIKE '%smoke%'
+          OR lower(experiment_id) LIKE '%bench%'
+          OR lower(experiment_id) LIKE '%spike%')
       GROUP BY experiment_id
       ORDER BY max(inserted_at) DESC
       LIMIT {limit: UInt16}
     `,
-    query_params: { limit },
+    query_params: { limit, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -316,6 +329,8 @@ export interface CulpritRun {
 
 // Which runs died in one cell. The heatmap answers "where", this answers "who" —
 // the click-through from an aggregate back to the individual playthroughs.
+// coins lives in the props envelope; the typed path hint makes props.coins a
+// real UInt16 subcolumn, so this stays columnar-fast.
 export async function runsAtCell(
   experimentId: string,
   variant: string,
@@ -323,18 +338,21 @@ export async function runsAtCell(
   gx: number,
   gy: number,
   limit = 6,
+  gameId: string = DEMO_GAME_ID,
 ): Promise<CulpritRun[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `
-      SELECT run_id, archetype, seed, coins, sim_ms, verdict
-      FROM bot_runs
-      WHERE experiment_id = {experimentId: String}
+      SELECT run_id, archetype, seed, props.coins AS coins, sim_ms, verdict
+      FROM game_runs
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
         AND variant = {variant: String}
         AND run_id IN (
           SELECT run_id
-          FROM bot_events
-          WHERE experiment_id = {experimentId: String}
+          FROM game_events
+          WHERE game_id = {gameId: String}
+            AND experiment_id = {experimentId: String}
             AND variant = {variant: String}
             AND room = {room: String}
             AND type = 'death'
@@ -344,7 +362,7 @@ export async function runsAtCell(
       ORDER BY sim_ms
       LIMIT {limit: UInt8}
     `,
-    query_params: { experimentId, variant, room, gx, gy, limit },
+    query_params: { experimentId, variant, room, gx, gy, limit, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -352,7 +370,7 @@ export async function runsAtCell(
     run_id: string;
     archetype: string;
     seed: string;
-    coins: string;
+    coins: number;
     sim_ms: string;
     verdict: string;
   }>();
@@ -374,13 +392,14 @@ export interface RunTrail {
 }
 
 // The ghost trail: one run's ~10Hz position stream, read straight off the
-// bot_events sort key (experiment_id, variant, run_id, t) — a primary-key
-// range scan per run, no aggregation.
+// game_events sort key (game_id, experiment_id, variant, run_id, t) — a
+// primary-key range scan per run, no aggregation.
 export async function runTrails(
   experimentId: string,
   variant: string,
   runIds: string[],
   bucketMs = 250,
+  gameId: string = DEMO_GAME_ID,
 ): Promise<RunTrail[]> {
   if (runIds.length === 0) return [];
   const ch = getClickHouse();
@@ -396,8 +415,9 @@ export async function runTrails(
         toUInt32(intDiv(t, {bucketMs: UInt32})) AS bucket,
         argMin(x, t) AS x,
         argMin(y, t) AS y
-      FROM bot_events
-      WHERE experiment_id = {experimentId: String}
+      FROM game_events
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
         AND variant = {variant: String}
         AND run_id IN {runIds: Array(String)}
         AND type = 'pos'
@@ -405,7 +425,7 @@ export async function runTrails(
       ORDER BY run_id, bucket
       LIMIT 4000
     `,
-    query_params: { experimentId, variant, runIds, bucketMs },
+    query_params: { experimentId, variant, runIds, bucketMs, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -420,14 +440,15 @@ export async function runTrails(
   const deathRs = await ch.query({
     query: `
       SELECT run_id, argMax(x, t) AS x, argMax(y, t) AS y
-      FROM bot_events
-      WHERE experiment_id = {experimentId: String}
+      FROM game_events
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
         AND variant = {variant: String}
         AND run_id IN {runIds: Array(String)}
         AND type = 'death'
       GROUP BY run_id
     `,
-    query_params: { experimentId, variant, runIds },
+    query_params: { experimentId, variant, runIds, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -465,7 +486,7 @@ export interface HumanRun {
 
 // The most recent human playthrough, whether or not it finished — a judge who
 // wanders off mid-run should still see their trail.
-export async function latestHumanRun(): Promise<HumanRun | null> {
+export async function latestHumanRun(gameId: string = DEMO_GAME_ID): Promise<HumanRun | null> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `
@@ -473,16 +494,18 @@ export async function latestHumanRun(): Promise<HumanRun | null> {
         run_id,
         any(room) AS room,
         max(t) AS last_t,
-        max(coins) AS coins,
+        max(props.coins) AS coins,
         argMaxIf(x, t, type = 'death') AS death_x,
         argMaxIf(y, t, type = 'death') AS death_y,
         countIf(type = 'death') AS deaths
-      FROM bot_events
-      WHERE archetype = 'human'
+      FROM game_events
+      WHERE game_id = {gameId: String}
+        AND archetype = 'human'
       GROUP BY run_id
       ORDER BY max(inserted_at) DESC
       LIMIT 1
     `,
+    query_params: { gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
@@ -521,6 +544,7 @@ export async function deathsNear(
   x: number,
   y: number,
   radiusTiles = 2,
+  gameId: string = DEMO_GAME_ID,
 ): Promise<DeathNeighbourhood> {
   const ch = getClickHouse();
   const rs = await ch.query({
@@ -529,8 +553,9 @@ export async function deathsNear(
         archetype,
         countIf(type = 'death' AND abs(x - {x: Float32}) <= {r: Float32} AND abs(y - {y: Float32}) <= {r: Float32}) AS deaths_nearby,
         uniqExact(run_id) AS runs
-      FROM bot_events
-      WHERE experiment_id = {experimentId: String}
+      FROM game_events
+      WHERE game_id = {gameId: String}
+        AND experiment_id = {experimentId: String}
         AND variant = {variant: String}
         AND room = {room: String}
       GROUP BY archetype
@@ -542,6 +567,7 @@ export async function deathsNear(
       x,
       y,
       r: radiusTiles * 16,
+      gameId,
     },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
@@ -566,9 +592,12 @@ export interface FunnelStage {
 }
 
 // Coin-progression funnel via windowFunnel over each run's event stream.
+// coins is a typed JSON path (props.coins: UInt16), which windowFunnel
+// conditions read like any other column.
 export async function progressionFunnel(
   experimentId: string,
   variant: string,
+  gameId: string = DEMO_GAME_ID,
 ): Promise<FunnelStage[]> {
   const ch = getClickHouse();
   const rs = await ch.query({
@@ -584,17 +613,18 @@ export async function progressionFunnel(
           windowFunnel(600000)(
             t,
             type = 'run_start',
-            type = 'pickup_coin' AND coins >= 1,
-            type = 'pickup_coin' AND coins >= 3,
-            type = 'pickup_coin' AND coins >= 5
+            type = 'pickup_coin' AND props.coins >= 1,
+            type = 'pickup_coin' AND props.coins >= 3,
+            type = 'pickup_coin' AND props.coins >= 5
           ) AS lvl
-        FROM bot_events
-        WHERE experiment_id = {experimentId: String}
+        FROM game_events
+        WHERE game_id = {gameId: String}
+          AND experiment_id = {experimentId: String}
           AND variant = {variant: String}
         GROUP BY run_id
       )
     `,
-    query_params: { experimentId, variant },
+    query_params: { experimentId, variant, gameId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });

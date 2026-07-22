@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getClickHouse } from "../../../lib/clickhouse";
-import { ensureSchema } from "../../../lib/schema";
+import { ensureMigrations } from "../../../lib/migrations";
+import { DEMO_GAME_ID } from "../../../lib/tables";
 
-// Human play telemetry lands in the same bot_events table as the swarm, tagged
+// Human play telemetry lands in the same game_events table as the swarm, tagged
 // archetype='human'. That's what lets a heatmap show "you died where the
-// rushers die" without a second pipeline or a schema migration.
+// rushers die" without a second pipeline.
 //
 // This is the one endpoint reachable from a public browser, so it is strict:
 // validated, size-capped, same-origin, and it never echoes ClickHouse errors.
@@ -65,11 +66,12 @@ export async function POST(req: Request) {
 
   try {
     const ch = getClickHouse();
-    await ensureSchema(ch);
+    await ensureMigrations(ch);
 
     await ch.insert({
-      table: "bot_events",
+      table: "game_events",
       values: events.map((e) => ({
+        game_id: DEMO_GAME_ID,
         experiment_id: HUMAN_EXPERIMENT,
         variant: "baseline",
         run_id: runId,
@@ -79,22 +81,21 @@ export async function POST(req: Request) {
         x: e.x,
         y: e.y,
         room: e.room,
-        health: e.health,
-        coins: e.coins,
-        detail: e.detail,
+        props: { health: e.health, coins: e.coins, detail: e.detail },
       })),
       format: "JSONEachRow",
       clickhouse_settings: { async_insert: 1, wait_for_async_insert: 1 },
     });
 
-    // The run row is written on the terminal event so bot_runs keeps one row
+    // The run row is written on the terminal event so game_runs keeps one row
     // per run; ReplacingMergeTree isn't in play here, so we only write once.
     const end = events.find((e) => e.type === "run_end");
     if (end) {
       await ch.insert({
-        table: "bot_runs",
+        table: "game_runs",
         values: [
           {
+            game_id: DEMO_GAME_ID,
             experiment_id: HUMAN_EXPERIMENT,
             variant: "baseline",
             run_id: runId,
@@ -103,8 +104,7 @@ export async function POST(req: Request) {
             verdict: end.detail === "win" ? "win" : "lose",
             sim_ms: end.t,
             wall_ms: end.t,
-            coins: end.coins,
-            rooms_visited: [end.room],
+            props: { coins: end.coins, rooms_visited: [end.room] },
           },
         ],
         format: "JSONEachRow",

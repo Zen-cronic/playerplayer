@@ -154,7 +154,7 @@ export function HeatmapCard({
             ))}
           </ul>
           <p className="ps-replay-provenance">
-            trails read from bot_events by primary key in {replay.queryMs}ms
+            trails read from game_events by primary key in {replay.queryMs}ms
           </p>
         </div>
       ) : (
@@ -187,7 +187,7 @@ export function HeatmapCard({
         runs={output.runs}
         cells={output.cells.length}
         queryMs={output.queryMs}
-        source="heatmap_cells (AggregatingMergeTree MV)"
+        source="game_heatmap (AggregatingMergeTree MV)"
       />
       <span className="sr-only">{summary}</span>
     </figure>

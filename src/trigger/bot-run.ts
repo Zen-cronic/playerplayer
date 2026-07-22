@@ -22,7 +22,7 @@ export interface BotRunPayload {
 // No retries: a bot-run inserts its telemetry near the end, so a retry after a
 // partial insert would re-insert under a fresh run_id and double-count in the
 // heatmap MV. A failed run is instead tolerated as a `failedRuns` in the cohort
-// (run-experiment.ts), keeping bot_events exactly-once and the canary's
+// (run-experiment.ts), keeping game_events exactly-once and the canary's
 // night-over-night delta genuinely zero.
 export const botRun = task({
   id: "bot-run",

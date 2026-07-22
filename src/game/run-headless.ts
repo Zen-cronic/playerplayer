@@ -27,7 +27,7 @@ async function main() {
       const runId = randomUUID();
       const { eventRows } = await insertRunTelemetry({ experimentId, variant, runId }, result);
       totalRows += eventRows + 1;
-      console.log(`    → inserted ${eventRows} bot_events rows + 1 bot_runs row (run_id ${runId})`);
+      console.log(`    → inserted ${eventRows} game_events rows + 1 game_runs row (run_id ${runId})`);
     }
     const counts = result.events.reduce<Record<string, number>>((acc, e) => {
       acc[e.type] = (acc[e.type] ?? 0) + 1;

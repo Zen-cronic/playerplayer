@@ -78,7 +78,7 @@ test.describe("smoke: dashboard registry", () => {
     await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
     // The same heatmap card the chat renders, with its live provenance.
     await expect(
-      page.getByText(/heatmap_cells \(AggregatingMergeTree MV\)/).first(),
+      page.getByText(/game_heatmap \(AggregatingMergeTree MV\)/).first(),
     ).toBeVisible();
 
     await attachErrorReport(info, errors);

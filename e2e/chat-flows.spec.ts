@@ -18,7 +18,7 @@ test.describe("live: chat read renders a card from ClickHouse", () => {
 
     // The heatmap card's provenance names the engine it read from — proof the
     // answer came from a live AggregatingMergeTree query, not a fixture.
-    const provenance = page.getByText(/heatmap_cells \(AggregatingMergeTree MV\)/);
+    const provenance = page.getByText(/game_heatmap \(AggregatingMergeTree MV\)/);
     await expect(provenance).toBeVisible({ timeout: 90_000 });
     await expect(provenance).toContainText(/\d+ bot runs/);
     await expect(provenance).toContainText(/\d+ms/);
@@ -50,7 +50,7 @@ test.describe("live: human-vs-swarm ghost overlay", () => {
     // over it — the "your run ·" overlay line is the ghost-trail signal.
     await expect(page.getByText(/your run ·/).first()).toBeVisible({ timeout: 90_000 });
     await expect(
-      page.getByText(/heatmap_cells \(AggregatingMergeTree MV\)/).first(),
+      page.getByText(/game_heatmap \(AggregatingMergeTree MV\)/).first(),
     ).toBeVisible();
 
     await attachErrorReport(info, errors);
