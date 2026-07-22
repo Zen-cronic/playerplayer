@@ -14,6 +14,19 @@ import { DEMO_GAME_ID } from "../../../lib/tables";
 const MAX_EVENTS = 500;
 const HUMAN_EXPERIMENT = "human-play";
 
+// Custom telemetry properties: bounded, key-charset-guarded extras that flow
+// into the props JSON envelope alongside the typed demo fields. This is NOT a
+// bring-your-own-game protocol — the endpoint stays same-origin with human-*
+// run ids and the fixed demo event enum; custom props + gameId are the part of
+// the adaptive envelope a host page can exercise today.
+const PropsSchema = z
+  .record(
+    z.string().regex(/^[a-z0-9_]{1,24}$/),
+    z.union([z.string().max(120), z.number(), z.boolean()]),
+  )
+  .refine((o) => Object.keys(o).length <= 20, "too many props keys")
+  .refine((o) => JSON.stringify(o).length <= 1024, "props too large");
+
 const EventSchema = z.object({
   t: z.number().int().min(0).max(60 * 60 * 1000),
   type: z.enum([
@@ -32,10 +45,12 @@ const EventSchema = z.object({
   health: z.number().int().min(-128).max(127),
   coins: z.number().int().min(0).max(65_535),
   detail: z.string().max(64),
+  props: PropsSchema.optional(),
 });
 
 const BodySchema = z.object({
   runId: z.string().min(8).max(64).regex(/^human-[a-zA-Z0-9-]+$/),
+  gameId: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
   events: z.array(EventSchema).min(1).max(MAX_EVENTS),
 });
 
@@ -62,7 +77,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid payload" }, { status: 400 });
   }
-  const { runId, events } = parsed.data;
+  const { runId, gameId, events } = parsed.data;
 
   try {
     const ch = getClickHouse();
@@ -71,7 +86,7 @@ export async function POST(req: Request) {
     await ch.insert({
       table: "game_events",
       values: events.map((e) => ({
-        game_id: DEMO_GAME_ID,
+        game_id: gameId ?? DEMO_GAME_ID,
         experiment_id: HUMAN_EXPERIMENT,
         variant: "baseline",
         run_id: runId,
@@ -81,7 +96,9 @@ export async function POST(req: Request) {
         x: e.x,
         y: e.y,
         room: e.room,
-        props: { health: e.health, coins: e.coins, detail: e.detail },
+        // Custom props spread FIRST so they can never override the typed
+        // demo fields (the JSON column's hinted paths).
+        props: { ...(e.props ?? {}), health: e.health, coins: e.coins, detail: e.detail },
       })),
       format: "JSONEachRow",
       clickhouse_settings: { async_insert: 1, wait_for_async_insert: 1 },
@@ -95,7 +112,7 @@ export async function POST(req: Request) {
         table: "game_runs",
         values: [
           {
-            game_id: DEMO_GAME_ID,
+            game_id: gameId ?? DEMO_GAME_ID,
             experiment_id: HUMAN_EXPERIMENT,
             variant: "baseline",
             run_id: runId,
