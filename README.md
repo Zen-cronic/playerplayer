@@ -129,9 +129,11 @@ new engine implements only `run()`. The repo ships the Phaser adapter
 (`phaserAdapter`), and the swarm's bot-run task drives the game exclusively
 through it.
 
-> The package builds locally (`pnpm --filter playtest-copilot build`, verified
-> with `npm pack`) and **is published to npm at submission** under the name
-> `playtest-copilot`; the snippet above is the shipping API.
+> The package builds locally (`pnpm --filter playtest-copilot build`) and passes
+> `npm pack` clean; **publishing it to npm as `playtest-copilot` is a
+> submission-time step**, so the registry entry may not exist until then. The
+> snippet above is the shipping API, and this app already imports the package
+> (not the source), so the integration is exercised regardless.
 
 ## Architecture
 
