@@ -83,7 +83,10 @@ table.
   **`batchTriggerAndWait`** to fan out one `bot-run` task per bot (matched seeds
   across `baseline` and `mutated` variants) and waits for the cohort. Each
   `bot-run` boots a headless Phaser instance faster-than-realtime, buffers
-  telemetry, and batch-inserts it.
+  telemetry, and batch-inserts it. Ingestion is retry-safe: each child carries a
+  run-scoped **`idempotencyKey`** so a parent retry re-uses runs instead of
+  re-fanning-out, and `bot-run` doesn't retry (a failed run is tolerated as a
+  `failedRuns` in the cohort) — so a retry never double-counts the heatmap.
 - **Human-in-the-loop** — `runSwarm` is declared with **`needsApproval: true`**.
   Mutating a level and spending compute pauses for the designer to Approve or
   Deny in the UI; the run resumes on the approval token. This is the moment the
