@@ -1,4 +1,4 @@
-import { schedules } from "@trigger.dev/sdk";
+import { metadata, schedules, tags } from "@trigger.dev/sdk";
 import { botRun } from "./bot-run";
 import { ARCHETYPES } from "../game/bot";
 import { getClickHouse } from "../lib/clickhouse";
@@ -19,6 +19,9 @@ export const regressionWatch = schedules.task({
     const date = payload.timestamp.toISOString().slice(0, 10);
 
     await ensureMigrations(getClickHouse());
+
+    await tags.add(`exp_${NIGHTLY_EXPERIMENT}`);
+    metadata.set("runsTotal", RUNS_PER_NIGHT).set("runsCompleted", 0);
 
     await botRun.batchTriggerAndWait(
       Array.from({ length: RUNS_PER_NIGHT }, (_, i) => ({

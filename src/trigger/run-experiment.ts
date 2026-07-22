@@ -1,4 +1,4 @@
-import { task } from "@trigger.dev/sdk";
+import { metadata, tags, task } from "@trigger.dev/sdk";
 import { botRun, type BotRunPayload } from "./bot-run";
 import { ARCHETYPES } from "../game/bot";
 import type { Mutation } from "../game/mutate";
@@ -26,6 +26,12 @@ export const runExperiment = task({
   id: "run-experiment",
   run: async (payload: RunExperimentPayload) => {
     const { experimentId, runsPerVariant, level, mutations, seedBase = "exp" } = payload;
+
+    // Ops navigability + live progress in the Trigger.dev dashboard: the run is
+    // findable by experiment tag, and children increment runsCompleted as they
+    // finish (see bot-run), so a chat-approved swarm is observable mid-flight.
+    await tags.add(`exp_${experimentId}`);
+    metadata.set("runsTotal", 2 * runsPerVariant).set("runsCompleted", 0);
 
     // A run-scoped idempotency key per (variant, seed) means a retry of THIS
     // fan-out re-uses the existing child runs instead of re-triggering the whole

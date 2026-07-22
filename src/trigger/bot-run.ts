@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { task } from "@trigger.dev/sdk";
+import { metadata, task } from "@trigger.dev/sdk";
 import { swarmQueue } from "./queues";
 import { phaserAdapter } from "../game/adapter";
 import { insertRunTelemetry } from "../lib/ingest";
@@ -69,6 +69,11 @@ export const botRun = task({
       { experimentId: payload.experimentId, variant: payload.variant, runId },
       result,
     );
+
+    // Light up the parent's progress (run-experiment, regression-watch, or
+    // live-swarm all set runsTotal/runsCompleted). bot-run is always
+    // parent-triggered in this app, so metadata.parent always has a target.
+    metadata.parent.increment("runsCompleted", 1);
 
     return {
       runId,
