@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { collectErrors, meaningfulConsoleErrors, attachErrorReport } from "./helpers";
+import { assertNoHost, collectErrors, meaningfulConsoleErrors, attachErrorReport } from "./helpers";
 
 // P0 smoke: the two judge-facing entry surfaces mount without crashing —
 // `/` (playable game + copilot popover through the SDK) and `/dashboard`
@@ -110,18 +110,6 @@ test.describe("smoke: dashboard registry", () => {
   test("never renders a ClickHouse host or credentials", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "Experiment registry" })).toBeVisible();
-    const body = (await page.locator("body").innerText()).toLowerCase();
-    // Connection details must never reach a recorded/shared surface. These are
-    // targeted at what a real CH connection string looks like — a dotted cloud
-    // host, a `:8443` port, or `user:pass@host` credentials — not bare digit
-    // runs, which legitimately occur inside experiment ids.
-    expect(body).not.toContain("clickhouse.cloud");
-    expect(body).not.toContain(":8443");
-    expect(body, "credentials embedded in a URL leaked").not.toMatch(
-      /https?:\/\/[^\s"'<>]*:[^\s"'<>]*@/,
-    );
-    expect(body, "cloud host with port leaked").not.toMatch(
-      /[a-z0-9.-]+\.(aws|gcp|azure)\.clickhouse\.cloud/,
-    );
+    await assertNoHost(page);
   });
 });

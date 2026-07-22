@@ -1,4 +1,4 @@
-import type { Page, TestInfo } from "@playwright/test";
+import { expect, type Page, type TestInfo } from "@playwright/test";
 
 // Uncaught exceptions (pageerror) mean the page actually crashed — those always
 // fail a flow. console.error is noisier (transport retries, dev warnings), so we
@@ -41,4 +41,20 @@ export async function attachErrorReport(info: TestInfo, errors: PageErrors) {
       contentType: "application/json",
     });
   }
+}
+
+// Connection details must never reach a recorded/shared surface. Targeted at
+// what a real ClickHouse connection string looks like — a dotted cloud host, a
+// :8443 port, or user:pass@host credentials — not bare digit runs, which
+// legitimately occur inside experiment ids. Shared by every page-level spec.
+export async function assertNoHost(page: Page) {
+  const body = (await page.locator("body").innerText()).toLowerCase();
+  expect(body).not.toContain("clickhouse.cloud");
+  expect(body).not.toContain(":8443");
+  expect(body, "credentials embedded in a URL leaked").not.toMatch(
+    /https?:\/\/[^\s"'<>]*:[^\s"'<>]*@/,
+  );
+  expect(body, "cloud host with port leaked").not.toMatch(
+    /[a-z0-9.-]+\.(aws|gcp|azure)\.clickhouse\.cloud/,
+  );
 }
