@@ -37,7 +37,7 @@ export function DeltaCard({ output }: { output: DeltaOutput }) {
       const alpha = 0.3 + 0.65 * (Math.abs(d) / maxAbs);
       colors.set(
         `${c.gx},${c.gy}`,
-        d > 0 ? `rgba(239,68,68,${alpha})` : `rgba(34,197,94,${alpha})`,
+        d > 0 ? `rgba(237,87,54,${alpha})` : `rgba(20,118,84,${alpha})`,
       );
     });
     return { cellColors: colors, byKey };
@@ -48,24 +48,39 @@ export function DeltaCard({ output }: { output: DeltaOutput }) {
   const diff = rateB - rateA;
   const verdict =
     Math.abs(diff) < 4
-      ? { label: "no clear change", cls: "bg-zinc-700 text-zinc-200" }
+      ? { label: "no clear change", tone: "neutral" }
       : diff < 0
-        ? { label: `deaths down ${Math.abs(diff).toFixed(0)}pp`, cls: "bg-emerald-800 text-emerald-100" }
-        : { label: `deaths up ${diff.toFixed(0)}pp`, cls: "bg-red-800 text-red-100" };
+        ? { label: `deaths down ${Math.abs(diff).toFixed(0)}pp`, tone: "positive" }
+        : { label: `deaths up ${diff.toFixed(0)}pp`, tone: "negative" };
 
   const summary = `${output.variantB} vs ${output.variantA}: death rate ${rateA.toFixed(0)}% → ${rateB.toFixed(0)}% over ${output.runsA}+${output.runsB} matched runs — ${verdict.label}`;
 
   return (
-    <figure className="my-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-      <figcaption className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-        <span className={`rounded-full px-2 py-0.5 font-semibold ${verdict.cls}`}>{verdict.label}</span>
-        <span className="text-zinc-300">
-          death rate {rateA.toFixed(0)}% → {rateB.toFixed(0)}%
+    <figure className="ps-data-card ps-delta-card">
+      <figcaption className="ps-card-header">
+        <span>
+          <span className="ps-card-eyebrow">Matched-seed comparison</span>
+          <strong>Mutation impact</strong>
         </span>
-        <span className="text-zinc-500">
-          {output.runsA}+{output.runsB} matched runs · {output.room} · {output.experimentId}
+        <span className="ps-card-context">
+          {output.room} · {output.experimentId}
         </span>
       </figcaption>
+      <div className="ps-delta-summary">
+        <span>
+          <small>{output.variantA}</small>
+          <strong>{rateA.toFixed(0)}%</strong>
+          <em>{output.runsA} runs</em>
+        </span>
+        <span className="ps-delta-arrow" aria-hidden="true">→</span>
+        <span>
+          <small>{output.variantB}</small>
+          <strong>{rateB.toFixed(0)}%</strong>
+          <em>{output.runsB} runs</em>
+        </span>
+        <span className={`ps-verdict is-${verdict.tone}`}>{verdict.label}</span>
+      </div>
+      <div className="ps-map-frame">
       <LevelCanvas
         room={output.room}
         cellColors={cellColors}
@@ -75,9 +90,10 @@ export function DeltaCard({ output }: { output: DeltaOutput }) {
           return `(${gx},${gy}) deaths ${c.deathsA}→${c.deathsB} · visits ${c.visitsA}→${c.visitsB}`;
         }}
       />
-      <div className="mt-1 text-[10px] text-zinc-500">
-        <span className="text-red-400">red</span> = more deaths after change ·{" "}
-        <span className="text-emerald-400">green</span> = fewer deaths
+      </div>
+      <div className="ps-delta-legend">
+        <span className="is-worse">red</span> = more deaths after change ·{" "}
+        <span className="is-better">green</span> = fewer deaths
       </div>
       <Provenance
         runs={output.runsA + output.runsB}

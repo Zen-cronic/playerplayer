@@ -51,11 +51,11 @@ export function HeatmapCard({
     const colors = new Map<string, string>();
     for (const c of output.cells) {
       if (c.deaths > 0) {
-        colors.set(`${c.gx},${c.gy}`, `rgba(239,68,68,${0.35 + 0.6 * (c.deaths / maxDeaths)})`);
+        colors.set(`${c.gx},${c.gy}`, `rgba(237,87,54,${0.38 + 0.6 * (c.deaths / maxDeaths)})`);
       } else if (c.visits > 0) {
         colors.set(
           `${c.gx},${c.gy}`,
-          `rgba(59,130,246,${0.06 + 0.3 * (Math.log1p(c.visits) / Math.log1p(maxVisits))})`,
+          `rgba(91,77,245,${0.08 + 0.36 * (Math.log1p(c.visits) / Math.log1p(maxVisits))})`,
         );
       }
     }
@@ -97,15 +97,25 @@ export function HeatmapCard({
   };
 
   return (
-    <figure className="my-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-      <figcaption className="mb-2 flex items-baseline justify-between text-xs">
-        <span className="font-medium text-zinc-200">
-          {output.room} death heatmap · {output.variant}
+    <figure className="ps-data-card ps-heatmap-card">
+      <figcaption className="ps-card-header">
+        <span>
+          <span className="ps-card-eyebrow">Spatial evidence</span>
+          <strong>{output.room} death heatmap</strong>
         </span>
-        <span className="text-zinc-500">
-          {output.runs} runs · {totalDeaths} deaths · experiment {output.experimentId}
+        <span className="ps-card-context">
+          {output.variant} · {output.experimentId}
         </span>
       </figcaption>
+      <div className="ps-card-metrics">
+        <span><small>Runs</small><strong>{output.runs}</strong></span>
+        <span><small>Deaths</small><strong>{totalDeaths}</strong></span>
+        <span>
+          <small>Hottest cell</small>
+          <strong>{hottest ? `${hottest.gx}, ${hottest.gy}` : "—"}</strong>
+        </span>
+      </div>
+      <div className="ps-map-frame">
       <LevelCanvas
         room={output.room}
         cellColors={cellColors}
@@ -118,21 +128,24 @@ export function HeatmapCard({
           const c = byKey.get(`${gx},${gy}`);
           if (!c) return null;
           const base = `(${gx},${gy}) deaths ${c.deaths} · visits ${c.visits} · damage ${c.damage}`;
-          return c.deaths > 0 ? `${base} — click to replay the runs that died here` : base;
+          return c.deaths > 0 && onDrillDown
+            ? `${base} — click to replay the runs that died here`
+            : base;
         }}
       />
+      </div>
       {replay ? (
-        <div className="mt-2 rounded-md border border-zinc-800 bg-zinc-900/60 p-2 text-xs">
-          <div className="mb-1 flex items-baseline justify-between">
-            <span className="text-zinc-300">
+        <div className="ps-replay-panel">
+          <div className="ps-replay-header">
+            <span>
               {replay.runs.length} run{replay.runs.length === 1 ? "" : "s"} died at ({replay.gx},
               {replay.gy})
             </span>
-            <button onClick={() => setReplay(null)} className="text-zinc-500 hover:text-zinc-300">
+            <button onClick={() => setReplay(null)}>
               back to heatmap
             </button>
           </div>
-          <ul className="space-y-0.5 text-zinc-400">
+          <ul className="ps-replay-list">
             {replay.runs.map((r) => (
               <li key={r.runId}>
                 <span style={{ color: TRAIL_COLORS[r.archetype] }}>{r.archetype}</span> · seed{" "}
@@ -140,24 +153,24 @@ export function HeatmapCard({
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-[10px] text-zinc-600">
+          <p className="ps-replay-provenance">
             trails read from bot_events by primary key in {replay.queryMs}ms
           </p>
         </div>
       ) : (
-        pending && <p className="mt-2 text-xs text-zinc-500">loading runs…</p>
+        pending && <p className="ps-pending-state">Loading culprit runs…</p>
       )}
       {output.human && (
-        <div className="mt-2 rounded-md border border-zinc-700 bg-zinc-900/60 p-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="inline-block h-0.5 w-4 bg-white" aria-hidden />
-            <span className="text-zinc-300">
+        <div className="ps-human-run">
+          <div className="ps-human-run-title">
+            <span className="ps-human-trail" aria-hidden />
+            <span>
               your run · {(output.human.survivedMs / 1000).toFixed(0)}s · {output.human.coins} coins
               · {output.human.died ? "died" : "no death recorded"}
             </span>
           </div>
           {output.nearby && output.human.died && (
-            <ul className="mt-1 space-y-0.5 text-zinc-500">
+            <ul className="ps-human-nearby">
               {output.nearby.byArchetype
                 .filter((a) => a.archetype !== "human" && a.runs > 0)
                 .map((a) => (

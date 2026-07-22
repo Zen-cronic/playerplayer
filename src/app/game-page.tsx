@@ -49,13 +49,25 @@ export function GamePage() {
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="game-workspace">
+      <div className="game-workspace-bar">
+        <div className="game-workspace-title">
+          <span>Dungeon corridor</span>
+          <span className="mono-label">Level 01</span>
+        </div>
+        <span className="game-run-badge">Human run live</span>
+      </div>
       <GameCanvas onEvent={onEvent} />
-      <p className="text-center text-xs text-zinc-600">
-        your run streams into the same ClickHouse table the bot swarm writes to —{" "}
-        {sent.toLocaleString()} events sent
-        {status === "error" ? " · ingest failed" : ""}
-      </p>
+      <div className="game-stream-bar" aria-live="polite">
+        <span>
+          <strong>ClickHouse telemetry</strong> · your trace streams into the bot swarm table
+        </span>
+        <span className="stream-count">
+          {status === "sending" ? "syncing · " : ""}
+          {sent.toLocaleString()} events
+          {status === "error" ? " · ingest failed" : " · connected"}
+        </span>
+      </div>
 
       <CopilotPopover
         accessToken={({ chatId }) => mintChatAccessToken(chatId)}

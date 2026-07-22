@@ -9,6 +9,7 @@ import {
   runCounts,
 } from "../../../lib/queries";
 import { HeatmapCard, DeltaCard, FunnelCard } from "playtest-copilot";
+import { AppShell } from "../../../components/app-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -42,59 +43,127 @@ export default async function ExperimentPage({
   const queryMs = Date.now() - started;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 p-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">{experimentId}</h1>
-          <p className="text-sm text-zinc-500">
-            {ref.runs} runs across {ref.variants.length} variant
-            {ref.variants.length === 1 ? "" : "s"} · {ROOM}
-          </p>
+    <AppShell active="analytics">
+      <main className="demo-page page-pad">
+        <header className="experiment-intro">
+          <div>
+            <p className="eyebrow">Experiment evidence</p>
+            <h1>{experimentId}</h1>
+            <div className="experiment-meta">
+              <span className="meta-chip">{ROOM}</span>
+              <span className="meta-chip">
+                {ref.variants.length} variant{ref.variants.length === 1 ? "" : "s"}
+              </span>
+              <span className="meta-chip">{ref.runs} total runs</span>
+            </div>
+          </div>
+          <Link href="/dashboard" className="secondary-link">
+            ← Experiment registry
+          </Link>
+        </header>
+
+        <section className="metric-grid" aria-label="Experiment query summary">
+          <div className="metric-cell">
+            <span className="metric-label">Primary variant</span>
+            <strong className="metric-value">{variantA}</strong>
+            <span className="metric-note">{counts[variantA] ?? 0} matched runs</span>
+          </div>
+          <div className="metric-cell">
+            <span className="metric-label">Compared with</span>
+            <strong className="metric-value">{variantB ?? "—"}</strong>
+            <span className="metric-note">
+              {variantB ? `${counts[variantB] ?? 0} matched runs` : "Single-variant experiment"}
+            </span>
+          </div>
+          <div className="metric-cell">
+            <span className="metric-label">Aggregated cells</span>
+            <strong className="metric-value">{cells.length.toLocaleString()}</strong>
+            <span className="metric-note">Materialized heatmap evidence</span>
+          </div>
+          <div className="metric-cell">
+            <span className="metric-label">Query latency</span>
+            <strong className="metric-value">{queryMs}ms</strong>
+            <span className="metric-note">Three ClickHouse reads in parallel</span>
+          </div>
+        </section>
+
+        <div className="visualization-stack">
+          {deltaCells && variantB && (
+            <section className="visualization-section" aria-labelledby="delta-heading">
+              <header className="visualization-copy">
+                <span className="section-index">01</span>
+                <h2 id="delta-heading">Counterfactual delta</h2>
+                <p>
+                  Red cells got worse after the level mutation; green cells improved.
+                  Matched seeds make the spatial comparison fair.
+                </p>
+              </header>
+              <div className="visualization-card-slot">
+                <DeltaCard
+                  output={{
+                    experimentId,
+                    variantA,
+                    variantB,
+                    room: ROOM,
+                    runsA: counts[variantA] ?? 0,
+                    runsB: counts[variantB] ?? 0,
+                    queryMs,
+                    totals: {
+                      deathsA: deltaCells.reduce((s, c) => s + c.deathsA, 0),
+                      deathsB: deltaCells.reduce((s, c) => s + c.deathsB, 0),
+                      deathRateA:
+                        (counts[variantA] ?? 0) > 0
+                          ? deltaCells.reduce((s, c) => s + c.deathsA, 0) / (counts[variantA] ?? 1)
+                          : 0,
+                      deathRateB:
+                        (counts[variantB] ?? 0) > 0
+                          ? deltaCells.reduce((s, c) => s + c.deathsB, 0) / (counts[variantB] ?? 1)
+                          : 0,
+                    },
+                    cells: deltaCells,
+                  }}
+                />
+              </div>
+            </section>
+          )}
+
+          <section className="visualization-section" aria-labelledby="heatmap-heading">
+            <header className="visualization-copy">
+              <span className="section-index">{deltaCells && variantB ? "02" : "01"}</span>
+              <h2 id="heatmap-heading">Failure field</h2>
+              <p>
+                Traffic builds a violet trace through the level. Ember cells mark deaths;
+                select a hotspot to replay the exact culprit runs.
+              </p>
+            </header>
+            <div className="visualization-card-slot">
+              <HeatmapCard
+                output={{
+                  experimentId,
+                  variant: variantA,
+                  room: ROOM,
+                  runs: counts[variantA] ?? 0,
+                  queryMs,
+                  cells,
+                }}
+              />
+            </div>
+          </section>
+
+          <section className="visualization-section" aria-labelledby="funnel-heading">
+            <header className="visualization-copy">
+              <span className="section-index">{deltaCells && variantB ? "03" : "02"}</span>
+              <h2 id="funnel-heading">Progression funnel</h2>
+              <p>
+                A quick read on how far players get before the level turns into friction.
+              </p>
+            </header>
+            <div className="visualization-card-slot">
+              <FunnelCard output={{ experimentId, variant: variantA, stages: funnel }} />
+            </div>
+          </section>
         </div>
-        <Link href="/dashboard" className="text-sm text-zinc-400 hover:text-zinc-200">
-          ← registry
-        </Link>
-      </header>
-
-      {deltaCells && variantB && (
-        <DeltaCard
-          output={{
-            experimentId,
-            variantA,
-            variantB,
-            room: ROOM,
-            runsA: counts[variantA] ?? 0,
-            runsB: counts[variantB] ?? 0,
-            queryMs,
-            totals: {
-              deathsA: deltaCells.reduce((s, c) => s + c.deathsA, 0),
-              deathsB: deltaCells.reduce((s, c) => s + c.deathsB, 0),
-              deathRateA:
-                (counts[variantA] ?? 0) > 0
-                  ? deltaCells.reduce((s, c) => s + c.deathsA, 0) / (counts[variantA] ?? 1)
-                  : 0,
-              deathRateB:
-                (counts[variantB] ?? 0) > 0
-                  ? deltaCells.reduce((s, c) => s + c.deathsB, 0) / (counts[variantB] ?? 1)
-                  : 0,
-            },
-            cells: deltaCells,
-          }}
-        />
-      )}
-
-      <HeatmapCard
-        output={{
-          experimentId,
-          variant: variantA,
-          room: ROOM,
-          runs: counts[variantA] ?? 0,
-          queryMs,
-          cells,
-        }}
-      />
-
-      <FunnelCard output={{ experimentId, variant: variantA, stages: funnel }} />
-    </main>
+      </main>
+    </AppShell>
   );
 }

@@ -14,9 +14,12 @@ export function Provenance({
   source: string;
 }) {
   return (
-    <div className="mt-1 text-[10px] text-zinc-600">
-      {runs} bot runs · {cells.toLocaleString()} cells aggregated · {source}
-      {typeof queryMs === "number" ? ` · ${queryMs}ms` : ""}
+    <div className="ps-provenance">
+      <span className="ps-provenance-dot" aria-hidden="true" />
+      <span>
+        {runs} bot runs · {cells.toLocaleString()} cells aggregated · {source}
+        {typeof queryMs === "number" ? ` · ${queryMs}ms` : ""}
+      </span>
     </div>
   );
 }

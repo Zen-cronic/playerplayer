@@ -1,16 +1,20 @@
 // Shown while the dashboard's server components run their ClickHouse queries.
 // A skeleton keeps the layout stable instead of flashing a blank page on the
 // drill-in's three-query fetch.
+import { AppShell } from "../../components/app-shell";
+
 export default function DashboardLoading() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 p-6">
-      <div className="h-8 w-56 animate-pulse rounded bg-zinc-900" />
-      <div className="flex gap-1.5">
-        <div className="h-5 w-64 animate-pulse rounded-full bg-zinc-900" />
-        <div className="h-5 w-48 animate-pulse rounded-full bg-zinc-900" />
-      </div>
-      <div className="h-40 animate-pulse rounded-lg border border-zinc-800 bg-zinc-950/60" />
-      <div className="h-64 animate-pulse rounded-lg border border-zinc-800 bg-zinc-950/60" />
-    </main>
+    <AppShell active="analytics">
+      <main className="demo-page page-pad" aria-busy="true" aria-label="Loading analytics">
+        <p className="eyebrow">Querying ClickHouse</p>
+        <div className="mt-5 skeleton-line" />
+        <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="skeleton-panel" />
+          <div className="skeleton-panel" />
+        </div>
+        <div className="mt-12 skeleton-panel !h-[420px]" />
+      </main>
+    </AppShell>
   );
 }

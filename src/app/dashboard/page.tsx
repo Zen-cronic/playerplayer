@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { experimentRows, watchReportRows } from "../../lib/queries";
 import { getClickHouse, READ_SETTINGS } from "../../lib/clickhouse";
+import { AppShell, ArrowUpRight } from "../../components/app-shell";
 
 // Mission control, not the pitch: the chat is where questions get answered.
 // This is the registry — what has run, and what the nightly canary saw.
@@ -27,11 +28,11 @@ async function stackTotals() {
 }
 
 const VERDICT_STYLES: Record<string, string> = {
-  stable: "border-zinc-700 text-zinc-400",
-  shifted: "border-amber-700 text-amber-400",
-  easier: "border-emerald-700 text-emerald-400",
-  harder: "border-red-700 text-red-400",
-  "first-night": "border-zinc-700 text-zinc-500",
+  stable: "verdict-stable",
+  shifted: "verdict-shifted",
+  easier: "verdict-easier",
+  harder: "verdict-harder",
+  "first-night": "verdict-first-night",
 };
 
 export default async function DashboardPage() {
@@ -40,108 +41,130 @@ export default async function DashboardPage() {
     watchReportRows(),
     stackTotals(),
   ]);
+  const totalDeaths = experiments.reduce((sum, experiment) => sum + experiment.deaths, 0);
+  const observedRuns = experiments.reduce((sum, experiment) => sum + experiment.runs, 0);
+  const deathRate = observedRuns > 0 ? Math.round((totalDeaths / observedRuns) * 100) : 0;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 p-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Experiment registry</h1>
-          <p className="text-sm text-zinc-500">
-            every experiment this agent has run, and what the nightly canary saw
+    <AppShell active="analytics">
+      <main className="demo-page page-pad">
+        <header className="page-intro">
+          <div>
+            <p className="eyebrow">Telemetry command center</p>
+            <h1 className="page-title-compact">Experiment registry</h1>
+          </div>
+          <p className="page-dek">
+            Every hypothesis the agent has tested, the variants it compared, and the
+            nightly canary watching for a spatial regression.
           </p>
-        </div>
-        <nav className="flex gap-3 text-sm text-zinc-400">
-          <Link href="/" className="hover:text-zinc-200">
-            game
-          </Link>
-          <Link href="/chat" className="hover:text-zinc-200">
-            full chat
-          </Link>
-        </nav>
-      </header>
+        </header>
 
-      <div className="flex flex-wrap gap-1.5 text-[11px]">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-2 py-0.5 text-zinc-400">
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${totals.ok ? "bg-emerald-400" : "bg-red-500"}`}
-          />
-          ClickHouse Cloud · {totals.events.toLocaleString()} events from{" "}
-          {totals.runs.toLocaleString()} runs · {totals.ms}ms
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-2 py-0.5 text-zinc-400">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          {experiments.length} experiments · server-rendered from bot_runs
-        </span>
-      </div>
+        <section className="metric-grid" aria-label="Experiment overview">
+          <div className="metric-cell">
+            <span className="metric-label">Bot runs</span>
+            <strong className="metric-value">{totals.runs.toLocaleString()}</strong>
+            <span className="metric-note">Across every retained trace</span>
+          </div>
+          <div className="metric-cell">
+            <span className="metric-label">Telemetry events</span>
+            <strong className="metric-value">{totals.events.toLocaleString()}</strong>
+            <span className="metric-note">
+              ClickHouse Cloud · {totals.events.toLocaleString()} events from{" "}
+              {totals.runs.toLocaleString()} runs · {totals.ms}ms
+            </span>
+          </div>
+          <div className="metric-cell">
+            <span className="metric-label">Experiments</span>
+            <strong className="metric-value">{experiments.length}</strong>
+            <span className="metric-note">Server-rendered from bot_runs</span>
+          </div>
+          <div className="metric-cell">
+            <span className="metric-label">Observed deaths</span>
+            <strong className="metric-value">{deathRate}%</strong>
+            <span className="metric-note">{totalDeaths.toLocaleString()} across registry rows</span>
+          </div>
+        </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-medium text-zinc-300">Nightly regression watch</h2>
-        {reports.length === 0 ? (
-          <p className="text-xs text-zinc-600">
-            no canary runs yet — the schedule fires at 03:00 UTC
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {reports.map((r) => (
-              <li
-                key={`${r.room}-${r.date}`}
-                className="flex flex-wrap items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs"
-              >
-                <span className="font-mono text-zinc-400">{r.date}</span>
-                <span
-                  className={`rounded-full border px-2 py-0.5 ${VERDICT_STYLES[r.verdict] ?? "border-zinc-700 text-zinc-400"}`}
-                >
-                  {r.verdict}
-                </span>
-                <span className="text-zinc-500">
-                  {(r.deathRate * 100).toFixed(0)}% deaths over {r.runs} fixed-seed runs
-                </span>
-                <span className="text-zinc-600">{r.cellsChanged} cells changed vs {r.prevDate}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-sm font-medium text-zinc-300">Experiments</h2>
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-900/60 text-zinc-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">experiment</th>
-                <th className="px-3 py-2 font-medium">variants</th>
-                <th className="px-3 py-2 font-medium">runs</th>
-                <th className="px-3 py-2 font-medium">deaths</th>
-                <th className="px-3 py-2 font-medium">last run</th>
-              </tr>
-            </thead>
-            <tbody>
-              {experiments.map((e) => (
-                <tr key={e.experimentId} className="border-t border-zinc-800/70">
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/dashboard/${encodeURIComponent(e.experimentId)}`}
-                      className="text-indigo-400 hover:text-indigo-300"
-                    >
-                      {e.experimentId}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-zinc-500">{e.variants.join(", ")}</td>
-                  <td className="px-3 py-2 text-zinc-400">{e.runs}</td>
-                  <td className="px-3 py-2 text-zinc-400">
-                    {e.deaths}
-                    <span className="ml-1 text-zinc-600">
-                      ({e.runs ? Math.round((e.deaths / e.runs) * 100) : 0}%)
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 font-mono text-zinc-600">{e.lastRun}</td>
-                </tr>
+        <section className="section-block" aria-labelledby="watch-heading">
+          <header className="section-heading">
+            <span className="section-index">01</span>
+            <h2 id="watch-heading">Nightly regression watch</h2>
+            <p>Fixed seeds turn a shifting play pattern into a comparable nightly signal.</p>
+          </header>
+          {reports.length === 0 ? (
+            <p className="empty-state">No canary runs yet — the schedule fires at 03:00 UTC.</p>
+          ) : (
+            <ul className="watch-list">
+              {reports.map((report) => (
+                <li key={`${report.room}-${report.date}`} className="watch-row">
+                  <span className="watch-date">{report.date}</span>
+                  <span className={`verdict ${VERDICT_STYLES[report.verdict] ?? "verdict-stable"}`}>
+                    {report.verdict}
+                  </span>
+                  <span className="watch-summary">
+                    {(report.deathRate * 100).toFixed(0)}% deaths over {report.runs} fixed-seed runs
+                  </span>
+                  <span className="watch-detail">
+                    {report.cellsChanged} cells changed vs {report.prevDate}
+                  </span>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+            </ul>
+          )}
+        </section>
+
+        <section className="section-block" aria-labelledby="experiments-heading">
+          <header className="section-heading">
+            <span className="section-index">02</span>
+            <h2 id="experiments-heading">Experiments</h2>
+            <p>Select any row to inspect its spatial delta, death heatmap, and funnel.</p>
+          </header>
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>experiment</th>
+                  <th>variants</th>
+                  <th>runs</th>
+                  <th>deaths</th>
+                  <th>last run</th>
+                </tr>
+              </thead>
+              <tbody>
+                {experiments.map((experiment) => {
+                  const pct = experiment.runs
+                    ? Math.round((experiment.deaths / experiment.runs) * 100)
+                    : 0;
+                  return (
+                    <tr key={experiment.experimentId}>
+                      <td>
+                        <Link
+                          href={`/dashboard/${encodeURIComponent(experiment.experimentId)}`}
+                          className="experiment-link"
+                        >
+                          {experiment.experimentId}
+                          <ArrowUpRight />
+                        </Link>
+                      </td>
+                      <td className="variant-list">{experiment.variants.join(", ")}</td>
+                      <td>{experiment.runs}</td>
+                      <td className="death-cell">
+                        <span className="death-cell-line">
+                          <span>{experiment.deaths} <span className="muted-copy">({pct}%)</span></span>
+                          <span className="death-rate-track" aria-hidden="true">
+                            <span className="death-rate-fill" style={{ width: `${Math.min(100, pct)}%` }} />
+                          </span>
+                        </span>
+                      </td>
+                      <td className="table-mono muted-copy">{experiment.lastRun}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </AppShell>
   );
 }

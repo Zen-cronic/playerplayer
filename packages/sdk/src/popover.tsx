@@ -24,10 +24,17 @@ export function CopilotPopover({
   if (!open) {
     return (
       <button
+        aria-label={launcherLabel}
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg hover:bg-indigo-500"
+        className="ps-copilot-launcher"
       >
-        {launcherLabel}
+        <span className="ps-launcher-mark" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span className="ps-launcher-label" aria-hidden="true">{launcherLabel}</span>
+        <span className="ps-launcher-live" aria-hidden="true">Live</span>
       </button>
     );
   }
@@ -36,22 +43,28 @@ export function CopilotPopover({
     <div
       className={
         expanded
-          ? "fixed inset-4 z-40 flex flex-col rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 shadow-2xl backdrop-blur"
-          : "fixed bottom-5 right-5 z-40 flex h-[min(620px,80vh)] w-[min(420px,92vw)] flex-col rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 shadow-2xl backdrop-blur"
+          ? "ps-copilot-popover is-expanded"
+          : "ps-copilot-popover"
       }
     >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium text-zinc-200">Playtest Swarm</span>
-        <div className="flex gap-2 text-xs text-zinc-500">
-          <button onClick={() => setExpanded((v) => !v)} className="hover:text-zinc-200">
+      <div className="ps-popover-header">
+        <span className="ps-popover-title">
+          <span className="ps-popover-symbol" aria-hidden="true">✦</span>
+          <span>
+            <strong>Playtest Swarm</strong>
+            <small>Level analyst · connected</small>
+          </span>
+        </span>
+        <div className="ps-popover-actions">
+          <button onClick={() => setExpanded((v) => !v)} className="ps-popover-action">
             {expanded ? "shrink" : "expand"}
           </button>
-          <button onClick={() => setOpen(false)} className="hover:text-zinc-200">
+          <button onClick={() => setOpen(false)} className="ps-popover-action">
             close
           </button>
         </div>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="ps-popover-body">
         <Copilot {...copilot} layout="panel" canvasScale={expanded ? 13 : 7} />
       </div>
     </div>

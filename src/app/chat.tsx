@@ -8,6 +8,7 @@ import {
   mintChatAccessToken,
   startChatSession,
 } from "./actions";
+import { SparkIcon, SwarmMark } from "../components/app-shell";
 
 // The reference integration: the host owns the Trigger server actions and the
 // ClickHouse-backed drill-down, and hands them to the widget as props.
@@ -28,13 +29,40 @@ export function Chat() {
   }, []);
 
   return (
-    <div className="mx-auto flex h-screen max-w-3xl flex-col p-4">
-      <header className="mb-3">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-xl font-bold tracking-tight">Playtest Swarm</h1>
-          <p className="text-sm text-zinc-500">the agent that re-runs your level to prove the fix</p>
+    <div className="chat-layout">
+      <aside className="chat-brief">
+        <p className="eyebrow">Durable AI analyst</p>
+        <h1>Ask the swarm.</h1>
+        <p className="chat-brief-copy">
+          Move from a design hunch to a reproducible experiment in one conversation.
+          Every answer can show the query, the run count, and the map cells behind it.
+        </p>
+
+        <div className="brief-features" aria-label="Agent capabilities">
+          <div className="brief-feature">
+            <span className="brief-feature-index">01</span>
+            <div>
+              <strong>Find the failure pattern</strong>
+              <span>Turn hundreds of routes into one readable hotspot.</span>
+            </div>
+          </div>
+          <div className="brief-feature">
+            <span className="brief-feature-index">02</span>
+            <div>
+              <strong>Test a counterfactual</strong>
+              <span>Pause for approval, mutate the level, fan out matched runs.</span>
+            </div>
+          </div>
+          <div className="brief-feature">
+            <span className="brief-feature-index">03</span>
+            <div>
+              <strong>Prove the change</strong>
+              <span>Compare death rate, spatial delta, and progression.</span>
+            </div>
+          </div>
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+
+        <div className="chat-brief-footer">
           <StatusChip live label="Trigger.dev agent · chat.agent() + task fan-out" />
           <StatusChip
             live={health?.ok ?? false}
@@ -45,15 +73,39 @@ export function Chat() {
             }
           />
         </div>
-      </header>
+      </aside>
 
-      <div className="min-h-0 flex-1">
-        <Copilot
-          accessToken={({ chatId }) => mintChatAccessToken(chatId)}
-          startSession={({ chatId, clientData }) => startChatSession({ chatId, clientData })}
-          onDrillDown={fetchCulpritRuns}
-        />
-      </div>
+      <section className="chat-console-shell" aria-label="Playtest agent conversation">
+        <header className="chat-console-header">
+          <div className="chat-console-title">
+            <span className="chat-console-avatar">
+              <SwarmMark />
+            </span>
+            <span>
+              <strong>Playtest analyst</strong>
+              <span>Context · Level 01 · Live telemetry</span>
+            </span>
+          </div>
+          <div className="chat-health">
+            <span className="status-pill px-3 py-1.5">
+              <SparkIcon className="size-3 text-violet" />
+              Tools ready
+            </span>
+            <span className="status-pill px-3 py-1.5">
+              <span className="live-dot !size-1.5" />
+              Streaming
+            </span>
+          </div>
+        </header>
+
+        <div className="chat-copilot-wrap">
+          <Copilot
+            accessToken={({ chatId }) => mintChatAccessToken(chatId)}
+            startSession={({ chatId, clientData }) => startChatSession({ chatId, clientData })}
+            onDrillDown={fetchCulpritRuns}
+          />
+        </div>
+      </section>
     </div>
   );
 }

@@ -74,7 +74,7 @@ export function SuggestionButton({
     <button
       onClick={() => onPick(text)}
       disabled={disabled}
-      className="block w-full rounded-md border border-zinc-700 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+      className="ps-suggestion"
     >
       {text}
     </button>
@@ -118,7 +118,7 @@ export function Copilot({
 
   return (
     <CanvasScaleProvider value={canvasScale ?? (layout === "panel" ? 7 : 13)}>
-    <div className="flex h-full min-h-0 flex-col">
+    <div className={`ps-copilot-root is-${layout}`}>
       {header}
 
       <div
@@ -127,19 +127,23 @@ export function Copilot({
           const el = e.currentTarget;
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
         }}
-        className="flex-1 space-y-4 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
+        className="ps-transcript"
       >
         {messages.length === 0 && (
-          <div className={`space-y-2 text-center ${layout === "full" ? "pt-8" : "pt-2"}`}>
-            <p className="text-sm text-zinc-400">Ask about your level, or try:</p>
-            {suggestions.map((s) => (
-              <SuggestionButton key={s} text={s} onPick={(t) => sendMessage({ text: t })} />
-            ))}
+          <div className="ps-empty-chat">
+            <span className="ps-empty-symbol" aria-hidden="true">✦</span>
+            <p className="ps-empty-title">Start with the evidence</p>
+            <p className="ps-empty-copy">Ask what broke, compare your run, or test a level change.</p>
+            <div className="ps-suggestion-list">
+              {suggestions.map((s) => (
+                <SuggestionButton key={s} text={s} onPick={(t) => sendMessage({ text: t })} />
+              ))}
+            </div>
           </div>
         )}
 
         {messages.map((msg, msgIndex) => (
-          <div key={msg.id} className={msg.role === "user" ? "text-right" : ""}>
+          <div key={msg.id} className={`ps-message ${msg.role === "user" ? "is-user" : "is-assistant"}`}>
             {msg.parts.map((part, i) => {
               const isLatestMessage = msgIndex === messages.length - 1;
               if (part.type === "text") {
@@ -148,8 +152,8 @@ export function Copilot({
                     key={i}
                     className={
                       msg.role === "user"
-                        ? "inline-block rounded-lg bg-indigo-600/80 px-3 py-2 text-sm"
-                        : "whitespace-pre-wrap text-sm text-zinc-200"
+                        ? "ps-message-text ps-message-user"
+                        : "ps-message-text ps-message-assistant"
                     }
                   >
                     {part.text}
@@ -171,32 +175,36 @@ export function Copilot({
                   const approvalId = toolPart.approval.id;
                   const spec = toolPart.input as SwarmInput | undefined;
                   return (
-                    <div key={i} className="my-2 rounded-lg border border-amber-600/50 bg-amber-950/30 p-3">
-                      <p className="text-sm font-medium text-amber-300">
+                    <div key={i} className="ps-approval-card">
+                      <div className="ps-approval-label">
+                        <span aria-hidden="true">!</span>
+                        Compute approval
+                      </div>
+                      <p className="ps-approval-title">
                         Run {(spec?.runsPerVariant ?? 18) * 2} bot playthroughs to test this?
                       </p>
                       {spec?.hypothesis && (
-                        <p className="mt-1 text-sm text-zinc-300">{spec.hypothesis}</p>
+                        <p className="ps-approval-hypothesis">{spec.hypothesis}</p>
                       )}
-                      <ul className="my-2 space-y-1 text-xs text-zinc-400">
+                      <ul className="ps-approval-list">
                         {(spec?.mutations ?? []).map((m, mi) => (
-                          <li key={mi}>· {describeMutation(m)}</li>
+                          <li key={mi}>{describeMutation(m)}</li>
                         ))}
                         <li>
-                          · {spec?.runsPerVariant ?? 18} matched-seed runs per variant on{" "}
+                          {spec?.runsPerVariant ?? 18} matched-seed runs per variant on{" "}
                           {spec?.room ?? "Level1"}, baseline vs mutated
                         </li>
                       </ul>
-                      <details className="mb-2 text-xs">
-                        <summary className="cursor-pointer text-zinc-600">raw spec</summary>
-                        <pre className="mt-1 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-zinc-500">
+                      <details className="ps-raw-tool">
+                        <summary>Raw experiment spec</summary>
+                        <pre>
                           {JSON.stringify(toolPart.input, null, 2)}
                         </pre>
                       </details>
-                      <div className="flex gap-2">
+                      <div className="ps-approval-actions">
                         <button
                           onClick={() => addToolApprovalResponse({ id: approvalId, approved: true })}
-                          className="rounded-md bg-emerald-700 px-3 py-1 text-sm hover:bg-emerald-600"
+                          className="ps-approve-button"
                         >
                           Approve
                         </button>
@@ -204,7 +212,7 @@ export function Copilot({
                           onClick={() =>
                             addToolApprovalResponse({ id: approvalId, approved: false, reason: "Designer denied" })
                           }
-                          className="rounded-md bg-zinc-700 px-3 py-1 text-sm hover:bg-zinc-600"
+                          className="ps-deny-button"
                         >
                           Deny
                         </button>
@@ -218,7 +226,7 @@ export function Copilot({
                     ?.suggestions;
                   if (!isLatestMessage || !followUps?.length) return null;
                   return (
-                    <div key={i} className="mt-3 space-y-2">
+                    <div key={i} className="ps-follow-ups">
                       {followUps.map((s) => (
                         <SuggestionButton
                           key={s}
@@ -244,7 +252,7 @@ export function Copilot({
                     (Array.isArray(out.stages) && out.stages.every((s) => s.runs === 0));
                   if (empty) {
                     return (
-                      <p key={i} className="my-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
+                      <p key={i} className="ps-empty-output">
                         {out.error ?? "No telemetry for that experiment yet."}
                       </p>
                     );
@@ -267,11 +275,11 @@ export function Copilot({
                 }
 
                 return (
-                  <details key={i} className="my-2 rounded-md border border-zinc-800 bg-zinc-950/60 p-2 text-xs">
-                    <summary className="cursor-pointer text-zinc-400">
+                  <details key={i} className="ps-tool-state">
+                    <summary>
                       {toolName} · {toolPart.state}
                     </summary>
-                    <pre className="mt-1 max-h-48 overflow-auto text-zinc-500">
+                    <pre>
                       {JSON.stringify({ input: toolPart.input, output: toolPart.output }, null, 2)}
                     </pre>
                   </details>
@@ -285,7 +293,7 @@ export function Copilot({
       </div>
 
       <form
-        className="mt-3 flex gap-2"
+        className="ps-composer"
         onSubmit={(e) => {
           e.preventDefault();
           if (!input.trim()) return;
@@ -297,15 +305,16 @@ export function Copilot({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={placeholder}
-          className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+          className="ps-composer-input"
         />
         {busy ? (
-          <button type="button" onClick={() => stop()} className="rounded-md bg-red-800 px-4 py-2 text-sm">
+          <button type="button" onClick={() => stop()} className="ps-stop-button">
             Stop
           </button>
         ) : (
-          <button type="submit" className="rounded-md bg-indigo-600 px-4 py-2 text-sm hover:bg-indigo-500">
-            Send
+          <button type="submit" className="ps-send-button">
+            <span>Send</span>
+            <span aria-hidden="true">↗</span>
           </button>
         )}
       </form>

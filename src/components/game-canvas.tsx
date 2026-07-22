@@ -49,16 +49,27 @@ export function GameCanvas({
   }, [level]);
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="game-canvas-unit">
       <div
         ref={hostRef}
-        className="overflow-hidden rounded-lg border border-zinc-800 bg-black"
-        style={{ width: 640, height: 360 }}
+        className="game-canvas-host"
       />
-      {error && <p className="mt-2 text-xs text-red-400">game failed to start: {error}</p>}
-      <p className="mt-2 text-xs text-zinc-500">
-        arrow keys to move · space to attack · collect coins, avoid the slimes
-      </p>
+      {error && (
+        <p className="border-t border-red-500/30 bg-red-950 px-4 py-2 text-xs text-red-200">
+          game failed to start: {error}
+        </p>
+      )}
+      <div className="game-controls">
+        <span className="key-guide">
+          <span className="key-cap">←↑↓→</span>
+          Move
+        </span>
+        <span className="key-guide">
+          <span className="key-cap">Space</span>
+          Attack
+        </span>
+        <span>Collect coins · avoid slimes</span>
+      </div>
     </div>
   );
 }

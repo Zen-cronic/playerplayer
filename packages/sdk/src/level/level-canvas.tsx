@@ -5,11 +5,11 @@ import { levelGeometry } from "./level-geometry";
 import { useCanvasScale } from "../layout-context";
 
 const OBJECT_COLORS: Record<string, string> = {
-  slime: "#4ade80",
-  enemy: "#f87171",
-  demon: "#c084fc",
-  coins: "#facc15",
-  spawn: "#38bdf8",
+  slime: "#72e3a5",
+  enemy: "#ff7961",
+  demon: "#b9a3ff",
+  coins: "#d8f24b",
+  spawn: "#62d5ff",
 };
 
 export interface CanvasTrail {
@@ -22,9 +22,9 @@ export interface CanvasTrail {
 // The archetype → trail color mapping, shared with the culprit-run legend in
 // heatmap-card so the drawn trail and its label can never drift apart.
 export const TRAIL_COLORS: Record<string, string> = {
-  rusher: "#fb923c",
-  explorer: "#22d3ee",
-  cautious: "#a3e635",
+  rusher: "#ff795a",
+  explorer: "#62d5ff",
+  cautious: "#d8f24b",
   // The player's own run has to read instantly against red deaths and blue traffic.
   human: "#ffffff",
 };
@@ -120,8 +120,10 @@ export function LevelCanvas({
 
     for (let y = 0; y < heightTiles; y++) {
       for (let x = 0; x < widthTiles; x++) {
-        ctx.fillStyle = walls[y * widthTiles + x] ? "#3f3f46" : "#131316";
+        ctx.fillStyle = walls[y * widthTiles + x] ? "#37373e" : "#111115";
         ctx.fillRect(x * scale, y * scale, scale, scale);
+        ctx.strokeStyle = "rgba(255,255,255,0.025)";
+        ctx.strokeRect(x * scale + 0.5, y * scale + 0.5, scale - 1, scale - 1);
       }
     }
 
@@ -186,10 +188,10 @@ export function LevelCanvas({
   }, [geometry, cellColors, scale, trails, progress, keepCellColors]);
 
   return (
-    <div ref={wrapRef} className="relative w-full">
+    <div ref={wrapRef} className="ps-level-wrap">
       <canvas
         ref={canvasRef}
-        className={`rounded-md border border-zinc-800${onCellClick ? " cursor-pointer" : ""}`}
+        className={`ps-level-canvas${onCellClick ? " is-clickable" : ""}`}
         onClick={(e) => {
           if (!onCellClick) return;
           const rect = e.currentTarget.getBoundingClientRect();
@@ -210,16 +212,17 @@ export function LevelCanvas({
       />
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded bg-zinc-950/95 px-2 py-1 text-xs text-zinc-200 shadow-lg"
+          className="ps-level-tooltip"
           style={{ left: (hover.gx + 1) * scale + 4, top: hover.gy * scale }}
         >
           {hover.text}
         </div>
       )}
-      <div className="mt-1 flex gap-3 text-[10px] text-zinc-500">
+      <div className="ps-level-legend">
+        <span className="ps-legend-title">Map objects</span>
         {Object.entries(OBJECT_COLORS).map(([type, color]) => (
-          <span key={type} className="flex items-center gap-1">
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: color }} />
+          <span key={type} className="ps-legend-item">
+            <span className="ps-legend-dot" style={{ background: color }} />
             {type}
           </span>
         ))}
