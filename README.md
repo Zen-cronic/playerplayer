@@ -165,6 +165,21 @@ pnpm dev                # terminal 2: Next.js (builds the SDK, then serves the a
 Requires a ClickHouse instance and a Trigger.dev project. The ClickHouse schema
 (tables + materialized view) is in `src/lib/schema.ts`.
 
+### Reproduce & verify
+
+Nothing here is a fixture. The before/after experiments in the demo are real,
+re-runnable matched-seed A/Bs:
+
+```bash
+pnpm seed:demo    # regenerates the demo experiments (coins-to-safety, crowd-the-corridor)
+pnpm test:e2e     # drives the real flows: chat read, approval gate, ghost overlay, delta card
+pnpm bot          # runs one headless bot and prints its telemetry
+```
+
+`seed:demo` moves the coins out of the slime room and re-runs the swarm — the
+death rate really does fall ~25 points; crowd the chokepoint and it rises. The
+numbers on every card are the live query's, shown in the provenance footer.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE). All code developed within the hackathon build
