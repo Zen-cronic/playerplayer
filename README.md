@@ -12,10 +12,10 @@ answers with a **death heatmap** drawn over your actual map — not a paragraph.
 Ask **"the coins are luring players into the slime room — what if I move them to
 the safe area?"** and it mutates the level (with your approval), re-runs the swarm
 on matched seeds, and renders the **before/after delta heatmap** that proves the
-fix worked: **deaths drop from 50% to 28%**. Ask instead to just *move the slime
-off the doorway* and it proves the opposite — the death rate holds at 44%, the
-deaths only relocate, because the enemy chases wherever you place it. The tool
-tells you which of your fixes actually work.
+fix worked: **the death rate falls about 25 points (~53% → ~28%)**. Ask instead to
+just *move the slime off the doorway* and it proves the opposite — the death rate
+barely moves, the deaths only relocate, because the enemy chases wherever you
+place it. The tool tells you which of your fixes actually work.
 
 The agent doesn't query a canned dataset — it acts to create one. Each swarm run
 and level mutation *generates* the telemetry ClickHouse then aggregates, so the
