@@ -9,10 +9,13 @@ Trigger.dev AI Hackathon 2026 — *"Beyond the Wall of Text."*
 Ask **"where do runs die on this level?"** and it dispatches a swarm of headless
 bots to play the level, records ~10 Hz positional telemetry into ClickHouse, and
 answers with a **death heatmap** drawn over your actual map — not a paragraph.
-Ask **"what if I move the slime away from the door?"** and it mutates the level
-(with your approval), re-runs the swarm on matched seeds, and renders the
-**before/after delta heatmap** that proves whether the change actually helped —
-or, as the demo shows, just relocated the deaths.
+Ask **"the coins are luring players into the slime room — what if I move them to
+the safe area?"** and it mutates the level (with your approval), re-runs the swarm
+on matched seeds, and renders the **before/after delta heatmap** that proves the
+fix worked: **deaths drop from 50% to 28%**. Ask instead to just *move the slime
+off the doorway* and it proves the opposite — the death rate holds at 44%, the
+deaths only relocate, because the enemy chases wherever you place it. The tool
+tells you which of your fixes actually work.
 
 The agent doesn't query a canned dataset — it acts to create one. Each swarm run
 and level mutation *generates* the telemetry ClickHouse then aggregates, so the
