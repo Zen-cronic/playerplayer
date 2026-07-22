@@ -16,3 +16,4 @@ Not vendored: audio assets (headless runs use Phaser's `noAudio` mode; `sound.ad
 ## Patches (none affect gameplay/difficulty)
 
 1. `Level.js`: `createStaticLayer` → `createLayer` — Phaser 3.50+ API rename; the game targeted Phaser 3.17, we run 3.55.2 (minimum for headless Node via @geckos.io/phaser-on-nodejs).
+2. `Level.js`: spawn lookup falls back to the map's first spawnpoint when the requested spawn name isn't present (`... || Object.values(this.spawnpoints)[0]`). Upstream hardcodes one spawn per menu selection; each of levels 1–5 names its spawns differently (level1 has `spawnCenter`, level2 has `spawnUp/Down/Left/Right`, level3 only `spawnLeft`). The fallback lets the swarm and the browser game boot any level from a single fixed registry value without crashing on `spawn.x`. No gameplay/difficulty change: level1 still resolves `spawnCenter` exactly as before.

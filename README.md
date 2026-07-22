@@ -142,7 +142,8 @@ through it.
 
 Two clocks, one codebase: bots run headless Phaser on a time-warped RAF for
 faster-than-realtime simulation; the human game runs the same modules on a real
-RAF in the browser.
+RAF in the browser. The demo runs on Level 1, but the swarm boots any of the
+pack's five levels from one code path — `bot-run` just takes the level id.
 
 ## Local development
 

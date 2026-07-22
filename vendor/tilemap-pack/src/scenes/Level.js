@@ -52,7 +52,7 @@ export default class Level extends Phaser.Scene {
     this.pickups = this.add.group();
     this.convertObjects();
 
-    let spawn = this.spawnpoints[this.registry.get('spawn')]; //assign spawn variable that points to the currently loaded spawnpoint
+    let spawn = this.spawnpoints[this.registry.get('spawn')] || Object.values(this.spawnpoints)[0]; //currently loaded spawnpoint, falling back to the map's first spawn if the requested name isn't present in this level
 
     this.crosshair = this.add.image(0, 0, 'atlas', 'crosshair');  //create crosshair which is controlled by player class
     //create a new instance of the player class at the currently loaded spawnpoint
