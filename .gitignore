@@ -32,4 +32,3 @@ test-results/
 # mirrored from vendor/tilemap-pack/assets by scripts/sync-game-assets.mjs
 /public/game
 
-e2e

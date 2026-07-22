@@ -42,37 +42,54 @@ a chart.
 ## How ClickHouse is used (primary database, load-bearing)
 
 ClickHouse is the only datastore. It carries the telemetry firehose *and* every
-analytical view the chat renders — no OLTP tier in the hot path.
+analytical view the chat renders — no OLTP tier in the hot path. The schema is a
+**game-agnostic envelope** evolved mid-hackathon through a versioned migration
+chain (see [SCHEMA.md](./SCHEMA.md) for every choice with rationale):
 
-- **`bot_events`** — `MergeTree` ordered by `(experiment_id, variant, run_id, t)`.
-  One table serves two very different reads from a single copy: the aggregate
-  heatmap (via the materialized view below) **and** per-run replay — clicking a
-  death cell is a **primary-key range scan** over one run's ~10 Hz stream, no
-  scan of the firehose.
-- **`heatmap_cells`** — `AggregatingMergeTree` fed by an **insert-time
-  materialized view** (`heatmap_cells_mv`) using `sumSimpleState` to grid-bin
-  visits / deaths / damage / coin-pickups per cell as events land. Heatmaps read
-  pre-aggregated state, so they stay fast while the swarm is still inserting.
-- **Delta** = a single-pass `sumIf` over `heatmap_cells` comparing `baseline` vs
+- **`game_events`** — `MergeTree` ordered by
+  `(game_id, experiment_id, variant, run_id, t)` with per-column codecs
+  (`Delta`/`Gorilla`/`ZSTD`). Universal fields are typed columns; game-specific
+  fields ride a **`JSON` column with typed path hints**
+  (`props JSON(health Int8, coins UInt16, detail String)`) — schemaless for the
+  next game, columnar-fast for this one (`props.coins` reads back as a real
+  `UInt16`, and even `windowFunnel` conditions run on it). One table serves two
+  very different reads from a single copy: the aggregate heatmap (via the MV
+  below) **and** per-run replay — clicking a death cell is a **primary-key range
+  scan** over one run's ~10 Hz stream.
+- **`game_heatmap`** — `AggregatingMergeTree` fed by an **insert-time
+  materialized view**, deliberately **generic**: it counts every `(cell, type)`
+  pair, so any event type any game emits gets spatial aggregation with zero
+  schema work; reads project visits/deaths/damage/pickups with `sumIf`. The
+  generic rollup is *smaller* than the wide v1 table it replaced.
+- **Delta** = a single-pass `sumIf` over `game_heatmap` comparing `baseline` vs
   `mutated` in one query — **no joins**.
-- **`windowFunnel`** drives the progression funnel (started → 1 coin → 3 coins →
-  5 coins), computed per variant.
+- **`agent_events`** — the agent's own observability store: every prompt, tool
+  call, approval, and worker error, queryable like any other telemetry
+  (90-day TTL; surfaced on `/dashboard/agent`).
 - **`watch_reports`** — `ReplacingMergeTree` (read with `FINAL`) stores the
   nightly canary's verdicts idempotently.
+- **Versioned migrations** — an Alembic-style forward-only chain
+  (`migrations/0001…0003`) with a `schema_migrations` ledger, sha256 checksums,
+  and **parity-checked backfill**: the 684k-row v1→v2 copy was gated on six A/B
+  equality checks (counts, per-experiment deaths, props round-trip, MV totals)
+  before the cutover commit. Only the CLI applies migrations; app processes
+  verify and refuse to run against a stale schema.
 - **Ingestion** uses asynchronous inserts (`async_insert=1`) with per-run
   client-side buffering, so a swarm of bots each emitting ~10 Hz never causes
-  part explosion.
-- **Human runs land in the same `bot_events` table** as `archetype='human'` —
-  **no schema migration** — so the ghost-overlay comparison is just the existing
-  heatmap MV plus a primary-key replay, keyed on a new archetype value.
+  part explosion. Live-lane bots additionally **stream event chunks mid-run**
+  (cursor-on-durable-ack, covered tail — see `/dashboard/live`).
+- **Human runs land in the same `game_events` table** as `archetype='human'` —
+  so the ghost-overlay comparison is just the existing heatmap MV plus a
+  primary-key replay, keyed on a new archetype value.
 
 Measured on ClickHouse Cloud during development: **over 600,000 events across
 950+ runs** (and still growing as the swarm runs). Heatmap reads over the
 materialized-view aggregate return in **≈70 ms at rest, and hold a median of
 ~85 ms (p90 ~140 ms) even during active ingest** (measured while a loader wrote
-~900 rows/run continuously) — the insert-time MV keeps reads fast while the swarm
-is still writing. The live figures are shown in the app header and on every card
-footer (`N runs · M cells · <table (engine)> · Xms`), so a judge can verify the
+~900 rows/run continuously); the live-ops panel sustains **~80 events/sec of
+mid-run streaming** from three concurrent paced bots. The live figures are shown
+in the app header and on every card footer
+(`N runs · M cells · <table (engine)> · Xms`), so a judge can verify the
 database is doing real work, not decorating a toy table.
 
 ## How Trigger.dev is used (orchestration, load-bearing)
@@ -97,6 +114,21 @@ database is doing real work, not decorating a toy table.
   cron that re-runs the swarm nightly on a deterministic fixed seed (zero-noise
   canary) and writes a visual diff to `watch_reports`, surfaced on the
   dashboard.
+- **Bounded queues** — bot fan-outs ride two dedicated queues
+  (`swarm-bots` ×6, `live-bots` ×3) budgeted exactly against the free plan's 10
+  concurrent runs, so a chat-approved swarm and the live demo never starve each
+  other.
+- **Live progress metadata** — every `bot-run` child increments
+  `metadata.parent` (`runsCompleted`), so chat swarms, the nightly canary, and
+  live waves all show mid-flight progress in the Trigger.dev dashboard; parents
+  tag themselves `exp_<id>` for ops navigability.
+- **`live-swarm`** — a `schemaTask` with zod-bounded waves of paced, streaming
+  bots (the `/dashboard/live` demo); the public launch action is guarded by a
+  data-enforced cooldown plus a global idempotency window.
+- **Agent observability producers** — a per-turn **tools factory** wraps every
+  chat tool in closures that log calls/results/approvals to ClickHouse, and
+  `onTurnStart`/`onTurnComplete` lifecycle hooks log prompts and responses;
+  `bot-run.onFailure` logs worker errors. ClickHouse observes the agent itself.
 - **Realtime** — the frontend uses `useTriggerChatTransport`, so tool results,
   token streams, and the approval gate flow to the popover live.
 - **Context discipline** — read tools return compact `toModelOutput` digests
@@ -149,9 +181,15 @@ through it.
   popover mounted through the SDK. Your run streams into the same ClickHouse
   table the bots write to.
 - **`/chat`** — the full-screen chat surface.
-- **`/dashboard`** — the experiment registry: every swarm that has run, the
-  nightly canary feed, and a per-experiment drill-in that reuses the same
-  heatmap / delta / funnel cards the chat renders.
+- **`/dashboard`** — mission control, four modules:
+  **Overview** (experiment registry + nightly canary feed, with a per-experiment
+  drill-in that reuses the chat's cards and shows the experiment's **lineage**:
+  prompt → approval → swarm → verdict); **Runs** (every playthrough, filterable,
+  with per-run ghost-trail replay + event timeline); **Agent log** (every chat
+  session and tool call, read back from ClickHouse — prompts render only when
+  the operator sets `AGENT_LOG_PUBLIC=1`, since the dashboard is public);
+  **Live ops** (launch a wave of paced bots and watch events/sec, active runs,
+  and hot cells update as they stream — the data shape of a multiplayer game).
 
 Two clocks, one codebase: bots run headless Phaser on a time-warped RAF for
 faster-than-realtime simulation; the human game runs the same modules on a real
@@ -163,12 +201,15 @@ pack's five levels from one code path — `bot-run` just takes the level id.
 ```bash
 pnpm install
 cp .env.template .env   # fill in Trigger.dev + ClickHouse credentials
+pnpm migrate            # apply the ClickHouse migration chain (fresh env: creates everything)
 pnpm dev:trigger        # terminal 1: Trigger.dev dev server (worker)
 pnpm dev                # terminal 2: Next.js (builds the SDK, then serves the app)
 ```
 
-Requires a ClickHouse instance and a Trigger.dev project. The ClickHouse schema
-(tables + materialized view) is in `src/lib/schema.ts`.
+Requires a ClickHouse instance and a Trigger.dev project. The schema lives in
+the versioned chain under `migrations/` (`pnpm migrate:status` shows the
+ledger, `pnpm migrate:verify` re-runs the backfill parity checks); only the CLI
+applies migrations — app processes verify and refuse to run behind.
 
 ### Reproduce & verify
 
@@ -184,6 +225,18 @@ pnpm bot          # runs one headless bot and prints its telemetry
 `seed:demo` moves the coins out of the slime room and re-runs the swarm — the
 death rate really does fall ~25 points; crowd the chokepoint and it rises. The
 numbers on every card are the live query's, shown in the provenance footer.
+
+## What's next
+
+The post-hackathon direction is written up in [ROADMAP.md](./ROADMAP.md)
+(clearly labelled — none of it was built during the event): an authenticated
+multi-game ingest protocol, time-bucketed rollups with aligned retention, more
+engine adapters over the `HeadlessAdapter` seam, and an onboarding agent that
+introspects your map and generates the adapter for you. Today's honest scope:
+the popover + telemetry install anywhere; the ingest endpoint accepts bounded
+**custom telemetry properties** (`gameId` + per-event `props` into the JSON
+envelope) but remains a same-origin demo surface; the swarm needs a per-engine
+adapter, and this repo ships Phaser's.
 
 ## License
 
