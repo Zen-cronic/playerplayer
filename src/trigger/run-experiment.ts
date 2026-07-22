@@ -27,21 +27,27 @@ export const runExperiment = task({
   run: async (payload: RunExperimentPayload) => {
     const { experimentId, runsPerVariant, level, mutations, seedBase = "exp" } = payload;
 
-    const items: Array<{ payload: BotRunPayload }> = [];
+    // A run-scoped idempotency key per (variant, seed) means a retry of THIS
+    // fan-out re-uses the existing child runs instead of re-triggering the whole
+    // swarm and double-writing its telemetry. A raw string is run-scoped in
+    // v4.3.1+, so a fresh experiment run still gets fresh children.
+    const items: Array<{ payload: BotRunPayload; options: { idempotencyKey: string } }> = [];
     for (const [variant, variantMutations] of [
       ["baseline", undefined],
       ["mutated", mutations],
     ] as const) {
       for (let i = 0; i < runsPerVariant; i++) {
+        const seed = `${seedBase}-${i}`;
         items.push({
           payload: {
             experimentId,
             variant,
-            seed: `${seedBase}-${i}`,
+            seed,
             archetype: ARCHETYPES[i % ARCHETYPES.length],
             level,
             mutations: variantMutations,
           },
+          options: { idempotencyKey: `${experimentId}:${variant}:${seed}` },
         });
       }
     }

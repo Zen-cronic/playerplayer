@@ -29,6 +29,10 @@ export const regressionWatch = schedules.task({
           archetype: ARCHETYPES[i % ARCHETYPES.length],
           level: ROOM,
         },
+        // Idempotent per night: a retry of the schedule re-uses the same canary
+        // runs instead of double-writing the date's telemetry, so the
+        // night-over-night delta stays a true zero on an unchanged level.
+        options: { idempotencyKey: `${NIGHTLY_EXPERIMENT}:${date}:nightly-${i}` },
       })),
     );
 
