@@ -1074,6 +1074,31 @@ a {
   background: var(--ps-acid-soft);
 }
 
+/* Runs explorer filters + pager */
+.runs-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.runs-filter-label {
+  min-width: 84px;
+  color: var(--ps-subtle);
+  font-family: var(--ps-font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.runs-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .visualization-stack {
   display: grid;
   gap: 56px;
