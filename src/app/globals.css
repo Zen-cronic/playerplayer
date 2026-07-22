@@ -1039,6 +1039,41 @@ a {
   font-size: 9px;
 }
 
+/* Dashboard section tabs */
+.dash-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.dash-tab {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid var(--ps-line);
+  border-radius: 999px;
+  background: var(--ps-paper-strong);
+  padding: 0 13px;
+  color: var(--ps-muted);
+  font-family: var(--ps-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.dash-tab:hover {
+  color: var(--ps-ink);
+  border-color: var(--ps-line-strong);
+}
+
+.dash-tab[aria-current="page"] {
+  color: var(--ps-ink);
+  border-color: var(--ps-line-strong);
+  background: var(--ps-acid-soft);
+}
+
 .visualization-stack {
   display: grid;
   gap: 56px;

@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { task } from "@trigger.dev/sdk";
+import { swarmQueue } from "./queues";
 import { phaserAdapter } from "../game/adapter";
 import { insertRunTelemetry } from "../lib/ingest";
 import { applyMutations, type Mutation } from "../game/mutate";
@@ -27,6 +28,8 @@ export interface BotRunPayload {
 export const botRun = task({
   id: "bot-run",
   machine: "small-1x",
+  // Default lane; live-swarm overrides per-trigger onto the live lane.
+  queue: swarmQueue,
   retry: { maxAttempts: 1 },
   run: async (payload: BotRunPayload) => {
     const level = payload.level ?? "Level1";

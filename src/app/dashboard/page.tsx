@@ -2,6 +2,7 @@ import Link from "next/link";
 import { experimentRows, watchReportRows } from "../../lib/queries";
 import { getClickHouse, READ_SETTINGS } from "../../lib/clickhouse";
 import { AppShell, ArrowUpRight } from "../../components/app-shell";
+import { DashboardTabs } from "../../components/dashboard-tabs";
 
 // Mission control, not the pitch: the chat is where questions get answered.
 // This is the registry — what has run, and what the nightly canary saw.
@@ -58,6 +59,8 @@ export default async function DashboardPage() {
             nightly canary watching for a spatial regression.
           </p>
         </header>
+
+        <DashboardTabs active="overview" />
 
         <section className="metric-grid" aria-label="Experiment overview">
           <div className="metric-cell">
