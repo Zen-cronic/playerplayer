@@ -12,7 +12,7 @@ SELECT toJSONString(groupArray(map(
   'playerId', toInt64(player_id), 'x', toInt64(x), 'y', toInt64(y),
   'score', toInt64(score), 'alive', toInt64(alive)
 ))) AS blob
-FROM match_state
+FROM match_state FINAL
 WHERE match_id = {matchId:String}
   AND tick = (SELECT max(tick) FROM match_state WHERE match_id = {matchId:String})
 `;

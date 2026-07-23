@@ -75,7 +75,7 @@ export const arena: Migration = {
     alive UInt8,
     inserted_at DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(1))
   )
-  ENGINE = MergeTree
+  ENGINE = ReplacingMergeTree(inserted_at)
   ORDER BY (match_id, tick, player_id)
 `,
   ],

@@ -58,7 +58,7 @@ async function digest(matchId: string, tick: number): Promise<string> {
   const ch = getClickHouse();
   const rs = await ch.query({
     query: `SELECT toString(cityHash64(toString(arraySort(groupArray((player_id,x,y,score,alive)))))) AS d
-            FROM match_state WHERE match_id = {m:String} AND tick = {t:UInt32}`,
+            FROM match_state FINAL WHERE match_id = {m:String} AND tick = {t:UInt32}`,
     query_params: { m: matchId, t: tick },
     format: "JSONEachRow",
   });
@@ -117,7 +117,7 @@ async function spikeScenario(matchId: string): Promise<void> {
   assert(!again, "resolveTick(1) again is a no-op");
   const ch = getClickHouse();
   const rs = await ch.query({
-    query: `SELECT count() AS n FROM match_state WHERE match_id = {m:String} AND tick = 1`,
+    query: `SELECT count() AS n FROM match_state FINAL WHERE match_id = {m:String} AND tick = 1`,
     query_params: { m: matchId },
     format: "JSONEachRow",
   });
@@ -170,6 +170,43 @@ async function corridorWalk(matchId: string): Promise<void> {
   assert(posOf(s, 1).x === 4, "corridor walk stops at x=4 (wall at x=5 blocks the 5th step)");
   const status = await matchStatus(matchId);
   assert(status.over === false, "solo match is not over before maxTicks");
+}
+
+// S1 regression: two advancers racing the SAME tick must not produce observable
+// duplicate rows. match_state is a ReplacingMergeTree read with FINAL, so concurrent
+// byte-identical re-inserts collapse to one row per player.
+async function concurrentAdvance(matchId: string): Promise<void> {
+  const arena = parseAsciiArena(["....."]);
+  await createMatch(
+    { matchId, room: "row", width: arena.width, height: arena.height, maxTicks: 10, tickMs: 0 },
+    arena.cells,
+    [{ playerId: 1, kind: "human", x: 0, y: 0 }, { playerId: 2, kind: "human", x: 2, y: 0 }],
+  );
+  await submitIntent(matchId, 0, 1, "right");
+  await submitIntent(matchId, 0, 2, "right");
+  await Promise.all([resolveTick(matchId, 1), resolveTick(matchId, 1)]); // race
+  const s = await getState(matchId, 1);
+  assert(s.length === 2, `concurrent resolve yields one row per player (got ${s.length})`);
+  const st = await matchStatus(matchId);
+  assert(st.total === 2, `matchStatus counts each player once after a race (total=${st.total})`);
+}
+
+// S2 regression: a player standing on its spawn coin scores it (it is not silently
+// consumed). The spawn tick is excluded from consumption; the coin is collected at
+// the first resolved tick.
+async function spawnOnCoin(matchId: string): Promise<void> {
+  const arena = parseAsciiArena(["C.."]);
+  await createMatch(
+    { matchId, room: "coinrow", width: arena.width, height: arena.height, maxTicks: 5, tickMs: 0 },
+    arena.cells,
+    [{ playerId: 1, kind: "human", x: 0, y: 0 }],
+  );
+  await submitIntent(matchId, 0, 1, "stay");
+  await resolveTick(matchId, 1);
+  const s = await getState(matchId, 1);
+  assert(posOf(s, 1).score === 1, "a player on its spawn coin scores it (not silently consumed)");
+  const coins = await coinsRemaining(matchId, 1);
+  assert(coins.length === 0, "the spawn coin is consumed after it is scored");
 }
 
 // Collision semantics documented in ADR 0002: no same-tick swaps, no trains through
@@ -339,7 +376,7 @@ async function loopIdempotency(matchId: string): Promise<void> {
   const ch = getClickHouse();
   const countState = async () => {
     const rs = await ch.query({
-      query: `SELECT count() AS n FROM match_state WHERE match_id = {m:String}`,
+      query: `SELECT count() AS n FROM match_state FINAL WHERE match_id = {m:String}`,
       query_params: { m: matchId },
       format: "JSONEachRow",
     });
@@ -383,6 +420,10 @@ async function main(): Promise<void> {
   await determinism();
   console.log("scenario: corridor walk (solo not-over)");
   await corridorWalk(`${RUN}-corridor`);
+  console.log("scenario: concurrent advance (S1 — no duplicate rows)");
+  await concurrentAdvance(`${RUN}-race`);
+  console.log("scenario: spawn-on-coin scores (S2)");
+  await spawnOnCoin(`${RUN}-spawncoin`);
   console.log("scenario: collision edges (no swaps, no trains)");
   await collisionEdges(`${RUN}-col`);
   console.log("scenario: last player standing (multiplayer over)");

@@ -65,7 +65,7 @@ INSERT INTO match_state (match_id, tick, player_id, x, y, score, alive, inserted
 WITH
   cur AS (
     SELECT player_id, x, y, score, alive
-    FROM match_state
+    FROM match_state FINAL
     WHERE match_id = {matchId:String} AND tick = {fromTick:UInt32}
   ),
   inp AS (
@@ -97,9 +97,12 @@ WITH
     WHERE match_id = {matchId:String} AND kind = 'coin'
   ),
   eaten AS (
+    -- Coin cells consumed by an earlier surviving player. tick >= 1 excludes the
+    -- spawn tick: a player who spawns on a coin doesn't consume it before it can be
+    -- scored on arrival (S2).
     SELECT DISTINCT x AS cx, y AS cy
     FROM match_state
-    WHERE match_id = {matchId:String} AND tick <= {fromTick:UInt32} AND alive = 1
+    WHERE match_id = {matchId:String} AND tick >= 1 AND tick <= {fromTick:UInt32} AND alive = 1
       AND (x, y) IN (SELECT cell_x, cell_y FROM coincells)
   ),
   occupied AS (
@@ -234,9 +237,12 @@ export async function submitIntent(
   });
 }
 
-// Advance the world to `toTick` (from toTick-1). Idempotent: if tick `toTick`
-// already exists it is a no-op, so a durable-loop retry cannot double-advance.
-// Returns whether it wrote this call (false = already resolved).
+// Advance the world to `toTick` (from toTick-1). The existence check is a fast-path
+// skip, not the correctness guarantee: it is a non-atomic read, so two concurrent
+// advancers could both insert. Correctness comes from match_state being a
+// ReplacingMergeTree keyed by (match_id,tick,player_id) read with FINAL — concurrent
+// re-inserts are byte-identical (deterministic resolution) and collapse to one row
+// per player. Returns whether it wrote this call (false = already resolved).
 export async function resolveTick(matchId: string, toTick: number): Promise<boolean> {
   if (toTick < 1) throw new Error("toTick must be >= 1");
   const ch = getClickHouse();
@@ -411,7 +417,7 @@ export async function getState(matchId: string, tick?: number): Promise<PlayerSt
   const rs = await ch.query({
     query: `
       SELECT player_id, x, y, score, alive
-      FROM match_state
+      FROM match_state FINAL
       WHERE match_id = {matchId:String} AND tick = {tick:UInt32}
       ORDER BY player_id
     `,
@@ -479,7 +485,10 @@ export async function latestTick(matchId: string): Promise<number> {
   return Number(t);
 }
 
-// Next seq for a player's input this tick, so a resubmission is a true last-write.
+// Next seq for a player's input this tick, so a later resubmission outranks the
+// earlier one (argMax by seq). Note: two concurrent submitters can compute the same
+// seq (this read is non-atomic); on a same-seq tie the resolution is deterministic
+// but decided by intent name, not arrival order (see RESOLUTION_SQL `inp`).
 export async function nextSeq(matchId: string, tick: number, playerId: number): Promise<number> {
   const ch = getClickHouse();
   const rs = await ch.query({
@@ -519,7 +528,7 @@ export async function coinsRemaining(matchId: string, tick: number): Promise<Cel
       WHERE match_id = {matchId:String} AND kind = 'coin'
         AND (cell_x, cell_y) NOT IN (
           SELECT x, y FROM match_state
-          WHERE match_id = {matchId:String} AND tick <= {tick:UInt32} AND alive = 1
+          WHERE match_id = {matchId:String} AND tick >= 1 AND tick <= {tick:UInt32} AND alive = 1
         )
       ORDER BY cell_x, cell_y
     `,
@@ -615,7 +624,7 @@ export async function matchStatus(matchId: string): Promise<MatchStatus> {
         countIf(alive = 1) AS alive,
         count() AS total,
         (SELECT any(max_ticks) FROM matches WHERE match_id = {matchId:String}) AS max_ticks
-      FROM match_state
+      FROM match_state FINAL
       WHERE match_id = {matchId:String}
         AND tick = (SELECT max(tick) FROM match_state WHERE match_id = {matchId:String})
     `,
