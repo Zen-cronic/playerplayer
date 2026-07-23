@@ -171,6 +171,39 @@ async function corridorWalk(matchId: string): Promise<void> {
   assert(status.over === false, "solo match is not over before maxTicks");
 }
 
+// Collision semantics documented in ADR 0002: no same-tick swaps, no trains through
+// a vacated cell. Both must be deterministic and collision-free.
+async function collisionEdges(base: string): Promise<void> {
+  // Swap: two adjacent players each targeting the other's cell both hold.
+  const m1 = `${base}-swap`;
+  const row = parseAsciiArena(["....."]);
+  await createMatch(
+    { matchId: m1, room: "row", width: row.width, height: row.height, maxTicks: 5, tickMs: 0 },
+    row.cells,
+    [{ playerId: 1, kind: "human", x: 1, y: 0 }, { playerId: 2, kind: "human", x: 2, y: 0 }],
+  );
+  await submitIntent(m1, 0, 1, "right");
+  await submitIntent(m1, 0, 2, "left");
+  await resolveTick(m1, 1);
+  const s1 = await getState(m1, 1);
+  assert(posOf(s1, 1).x === 1 && posOf(s1, 2).x === 2, "adjacent players cannot swap (both hold)");
+
+  // Train: leader moves into an empty cell; the follower cannot enter the leader's
+  // just-vacated cell in the same tick.
+  const m2 = `${base}-train`;
+  await createMatch(
+    { matchId: m2, room: "row", width: row.width, height: row.height, maxTicks: 5, tickMs: 0 },
+    row.cells,
+    [{ playerId: 1, kind: "human", x: 1, y: 0 }, { playerId: 2, kind: "human", x: 2, y: 0 }],
+  );
+  await submitIntent(m2, 0, 1, "right");
+  await submitIntent(m2, 0, 2, "right");
+  await resolveTick(m2, 1);
+  const s2 = await getState(m2, 1);
+  assert(posOf(s2, 2).x === 3, "leader moves into the empty cell");
+  assert(posOf(s2, 1).x === 1, "follower holds (no same-tick train through a vacated cell)");
+}
+
 // Last-player-standing ends a MULTIPLAYER match: two players, one steps on a hazard.
 async function lastStanding(matchId: string): Promise<void> {
   const arena = parseAsciiArena([".H.", "..."]); // hazard at (1,0)
@@ -291,6 +324,8 @@ async function main(): Promise<void> {
   await determinism();
   console.log("scenario: corridor walk (solo not-over)");
   await corridorWalk(`${RUN}-corridor`);
+  console.log("scenario: collision edges (no swaps, no trains)");
+  await collisionEdges(`${RUN}-col`);
   console.log("scenario: last player standing (multiplayer over)");
   await lastStanding(`${RUN}-duel`);
   console.log("scenario: full bot match determinism (loop mechanics)");
