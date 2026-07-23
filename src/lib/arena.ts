@@ -1,6 +1,7 @@
 import { getClickHouse, READ_SETTINGS } from "./clickhouse";
 import { ensureMigrations } from "./migrations";
 import { ARENA_GAME_ID, ARENA_TILE } from "./tables";
+import { botIntent, mulberry32, type BotArchetype } from "./arena-bot";
 
 // ClickHouse Arena: the authoritative engine of a live multiplayer grid game.
 // State(N+1) is a pure SQL function of state(N) + inputs(N) + geometry, computed
@@ -50,8 +51,9 @@ export interface PlayerState {
 //   move intent -> wall clamp -> P-vs-P collision tiebreak -> hazard -> coin/score.
 // Membership is tested with tuple-IN subqueries, never LEFT JOIN: ClickHouse fills
 // unmatched LEFT JOIN rows with type defaults (not NULL), which would read a
-// missing geometry cell as a real enum kind. The single LEFT JOIN (cur<->inp for
-// intent) runs under join_use_nulls=1 so coalesce(..., 'stay') sees a true NULL.
+// missing geometry cell as a real enum kind. A player with no input for the tick
+// gets a synthetic 'stay' default (see `inp`), so intent resolution needs no
+// nullable join at all.
 //
 // Collision model (deterministic, single-pass): a move succeeds only if the target
 // is walkable, not currently occupied by an alive player (no same-tick trains), and
@@ -67,9 +69,19 @@ WITH
     WHERE match_id = {matchId:String} AND tick = {fromTick:UInt32}
   ),
   inp AS (
-    SELECT player_id, argMax(intent, seq) AS intent
-    FROM match_inputs
-    WHERE match_id = {matchId:String} AND tick = {fromTick:UInt32}
+    -- Every current player gets a synthetic 'stay' default; a real input outranks it
+    -- (is_real), and the latest real input wins (seq), with a deterministic intent
+    -- tiebreak. So "no input -> stay" needs no nullable join.
+    SELECT player_id, argMax(intent_s, (is_real, seq, intent_s)) AS intent
+    FROM (
+      SELECT player_id, seq, toString(intent) AS intent_s, 1 AS is_real
+      FROM match_inputs
+      WHERE match_id = {matchId:String} AND tick = {fromTick:UInt32}
+      UNION ALL
+      SELECT player_id, toUInt32(0) AS seq, 'stay' AS intent_s, 0 AS is_real
+      FROM match_state
+      WHERE match_id = {matchId:String} AND tick = {fromTick:UInt32}
+    )
     GROUP BY player_id
   ),
   walkable AS (
@@ -95,8 +107,8 @@ WITH
   ),
   pre AS (
     SELECT c.player_id AS player_id, c.x AS x, c.y AS y, c.score AS score, c.alive AS alive,
-           coalesce(i.intent, 'stay') AS intent
-    FROM cur AS c LEFT JOIN inp AS i USING (player_id)
+           i.intent AS intent
+    FROM cur AS c INNER JOIN inp AS i USING (player_id)
   ),
   desired AS (
     SELECT player_id, x, y, score, alive, intent,
@@ -134,7 +146,6 @@ WITH
 SELECT {matchId:String} AS match_id, {toTick:UInt32} AS tick, player_id,
        fx AS x, fy AS y, new_score AS score, new_alive AS alive, now64(3) AS inserted_at
 FROM scored
-SETTINGS join_use_nulls = 1
 `;
 
 const WRITE_SETTINGS = { async_insert: 1, wait_for_async_insert: 1 } as const;
@@ -245,6 +256,100 @@ export async function resolveTick(matchId: string, toTick: number): Promise<bool
     query_params: { matchId, fromTick: toTick - 1, toTick },
   });
   return true;
+}
+
+// Whether tick T has been resolved (used by the durable loop to fast-forward
+// already-resolved ticks on a retry without re-submitting bot intents).
+export async function isTickResolved(matchId: string, tick: number): Promise<boolean> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `SELECT count() AS n FROM match_state WHERE match_id = {matchId:String} AND tick = {tick:UInt32}`,
+    query_params: { matchId, tick },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const [{ n }] = await rs.json<{ n: string }>();
+  return Number(n) > 0;
+}
+
+// Compute and submit each alive bot's intent for `tick` from the world at `tick`.
+// Bots are re-seeded per (seed, player, tick) so the durable loop recomputes the
+// identical intent on a retry. Returns how many bot intents were submitted.
+export async function stepBots(matchId: string, tick: number): Promise<number> {
+  const ch = getClickHouse();
+
+  const botsRs = await ch.query({
+    query: `SELECT player_id, archetype, seed FROM match_players WHERE match_id = {matchId:String} AND kind = 'bot'`,
+    query_params: { matchId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const bots = await botsRs.json<{ player_id: string; archetype: string; seed: string }>();
+  if (bots.length === 0) return 0;
+
+  const [state, geoRs, coins, dims] = await Promise.all([
+    getState(matchId, tick),
+    ch.query({
+      query: `SELECT cell_x, cell_y, kind FROM match_geometry WHERE match_id = {matchId:String} AND kind IN ('wall','hazard')`,
+      query_params: { matchId },
+      format: "JSONEachRow",
+      clickhouse_settings: READ_SETTINGS,
+    }),
+    coinsRemaining(matchId, tick),
+    ch.query({
+      query: `SELECT any(width) AS w, any(height) AS h FROM matches WHERE match_id = {matchId:String}`,
+      query_params: { matchId },
+      format: "JSONEachRow",
+      clickhouse_settings: READ_SETTINGS,
+    }),
+  ]);
+
+  const geo = await geoRs.json<{ cell_x: string; cell_y: string; kind: string }>();
+  const [{ w, h }] = await dims.json<{ w: string; h: string }>();
+  const width = Number(w);
+  const height = Number(h);
+  const walls = new Set(geo.filter((g) => g.kind === "wall").map((g) => `${g.cell_x},${g.cell_y}`));
+  const hazards = new Set(geo.filter((g) => g.kind === "hazard").map((g) => `${g.cell_x},${g.cell_y}`));
+  const walkable = new Set<string>();
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      const k = `${x},${y}`;
+      if (!walls.has(k)) walkable.add(k);
+    }
+  }
+
+  const alive = state.filter((s) => s.alive);
+  const aliveById = new Map(alive.map((p) => [p.playerId, p]));
+  const coinPts = coins.map((c) => ({ x: c.x, y: c.y }));
+
+  const values: Record<string, unknown>[] = [];
+  for (const b of bots) {
+    const playerId = Number(b.player_id);
+    const self = aliveById.get(playerId);
+    if (!self) continue; // dead bots do not act
+    const others = alive.filter((p) => p.playerId !== playerId).map((p) => ({ x: p.x, y: p.y }));
+    const rng = mulberry32(`${b.seed || matchId}:${playerId}:${tick}`);
+    const intent = botIntent(b.archetype as BotArchetype, {
+      self: { x: self.x, y: self.y },
+      others,
+      coins: coinPts,
+      width,
+      height,
+      walkable,
+      hazards,
+    }, rng);
+    values.push({ match_id: matchId, tick, player_id: playerId, seq: 0, intent });
+  }
+
+  if (values.length > 0) {
+    await ch.insert({
+      table: "match_inputs",
+      values,
+      format: "JSONEachRow",
+      clickhouse_settings: WRITE_SETTINGS,
+    });
+  }
+  return values.length;
 }
 
 // Read the authoritative world at a tick (default: the latest resolved tick).

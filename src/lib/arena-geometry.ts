@@ -15,6 +15,22 @@ export interface ParsedArena {
   spawns: { x: number; y: number }[];
 }
 
+// Built-in arenas for demos and tests (16x10 bordered rooms). Legible on purpose.
+export const ARENA_PRESETS: Record<string, string[]> = {
+  demo: [
+    "################",
+    "#S..C......C..S#",
+    "#..............#",
+    "#...H......H...#",
+    "#..C........C..#",
+    "#....######....#",
+    "#..C........C..#",
+    "#...H......H...#",
+    "#S....C..C....S#",
+    "################",
+  ],
+};
+
 // ASCII legend: '#'=wall '.'=floor 'H'=hazard 'C'=coin 'S'=spawn (spawn is walkable).
 const ASCII_KIND: Record<string, CellKind> = {
   "#": "wall",
@@ -39,6 +55,24 @@ export function parseAsciiArena(rows: string[]): ParsedArena {
     }
   }
   return { width, height, cells, spawns };
+}
+
+// Pick `n` deterministic start cells: spawn cells first (sorted), then floor cells
+// (sorted) if more players than spawns. Never a wall/hazard/coin cell.
+export function assignSpawns(parsed: ParsedArena, n: number): { x: number; y: number }[] {
+  const sortKey = (c: { x: number; y: number }) => c.y * 100000 + c.x;
+  const spawns = [...parsed.spawns].sort((a, b) => sortKey(a) - sortKey(b));
+  if (spawns.length >= n) return spawns.slice(0, n);
+  const floors = parsed.cells
+    .filter((c) => c.kind === "floor")
+    .sort((a, b) => sortKey(a) - sortKey(b));
+  const out = [...spawns];
+  for (const f of floors) {
+    if (out.length >= n) break;
+    out.push({ x: f.x, y: f.y });
+  }
+  if (out.length < n) throw new Error(`arena has only ${out.length} start cells, need ${n}`);
+  return out;
 }
 
 interface TiledLayer {

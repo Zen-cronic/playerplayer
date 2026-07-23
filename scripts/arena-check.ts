@@ -3,6 +3,7 @@ import { loadDotEnv } from "../src/lib/env";
 import {
   createMatch,
   submitIntent,
+  stepBots,
   resolveTick,
   emitTickTelemetry,
   getState,
@@ -11,7 +12,13 @@ import {
   type Intent,
   type PlayerState,
 } from "../src/lib/arena";
-import { parseAsciiArena, geometryFromTiledLevel } from "../src/lib/arena-geometry";
+import {
+  parseAsciiArena,
+  geometryFromTiledLevel,
+  ARENA_PRESETS,
+  assignSpawns,
+} from "../src/lib/arena-geometry";
+import { BOT_ARCHETYPES } from "../src/lib/arena-bot";
 
 // Deterministic engine test for ClickHouse Arena. Exercises the real resolution
 // SQL against a ClickHouse instance and asserts every rule. Run against a LOCAL
@@ -221,6 +228,43 @@ async function telemetryBridge(matchId: string): Promise<void> {
   assert(!!death && Number(death.gx) === 5 && Number(death.gy) === 2, "heatmap MV recovered death cell (5,2) from cell*16");
 }
 
+// Drive the durable loop's mechanics locally (stepBots -> resolveTick per tick,
+// minus Trigger's wall-clock waits). Bot seeds are matchId-independent so two
+// matches are directly comparable. Returns the final tick + a state digest.
+async function runFullBotMatch(matchId: string, seedBase: string): Promise<{ finalTick: number; digest: string }> {
+  const arena = parseAsciiArena(ARENA_PRESETS.demo);
+  const starts = assignSpawns(arena, 4);
+  const players = starts.map((s, i) => ({
+    playerId: i + 1,
+    kind: "bot" as const,
+    archetype: BOT_ARCHETYPES[i % BOT_ARCHETYPES.length],
+    seed: `${seedBase}:${i + 1}`,
+    x: s.x,
+    y: s.y,
+  }));
+  await createMatch(
+    { matchId, room: "demo", width: arena.width, height: arena.height, maxTicks: 40, tickMs: 500 },
+    arena.cells,
+    players,
+  );
+  for (let tick = 1; tick <= 40; tick++) {
+    await stepBots(matchId, tick - 1);
+    await resolveTick(matchId, tick);
+    const st = await matchStatus(matchId);
+    if (st.over) break;
+  }
+  const st = await matchStatus(matchId);
+  return { finalTick: st.tick, digest: await digest(matchId, st.tick) };
+}
+
+async function fullMatchDeterminism(): Promise<void> {
+  const a = await runFullBotMatch(`${RUN}-fmA`, "det");
+  const b = await runFullBotMatch(`${RUN}-fmB`, "det");
+  assert(a.finalTick > 3, `match advanced past a few ticks (finalTick=${a.finalTick})`);
+  assert(a.finalTick === b.finalTick, `both matches ran the same number of ticks (${a.finalTick})`);
+  assert(a.digest === b.digest, `full 4-bot match is deterministic run-to-run (digest ${a.digest})`);
+}
+
 async function main(): Promise<void> {
   console.log(`arena:check against ${URL} (run ${RUN})`);
   console.log("scenario: spike rules");
@@ -229,6 +273,8 @@ async function main(): Promise<void> {
   await determinism();
   console.log("scenario: corridor walk + match-over");
   await corridorWalk(`${RUN}-corridor`);
+  console.log("scenario: full bot match determinism (loop mechanics)");
+  await fullMatchDeterminism();
   console.log("scenario: analytics reuse bridge (game_events + heatmap MV)");
   await telemetryBridge(`${RUN}-tele`);
   console.log("scenario: real Tiled level reuse");

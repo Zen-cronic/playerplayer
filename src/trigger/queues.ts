@@ -12,3 +12,9 @@ export const swarmQueue = queue({ name: "swarm-bots", concurrencyLimit: 6 });
 
 // Live lane: paced streaming bots for the live-ops demo.
 export const liveQueue = queue({ name: "live-bots", concurrencyLimit: 3 });
+
+// Arena lane: durable per-match game clocks. A match-loop checkpoints during each
+// wait.for between ticks, so it holds a slot only for the brief per-tick resolve —
+// two concurrent matches fit alongside the swarm/live/chat lanes under the account's
+// 10-run ceiling (matches queue if everything else is flat out).
+export const arenaQueue = queue({ name: "arena-matches", concurrencyLimit: 2 });
