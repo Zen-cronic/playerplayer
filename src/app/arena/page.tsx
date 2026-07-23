@@ -90,6 +90,15 @@ function HeatIcon() {
   );
 }
 
+function FrameIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="m4 11 3-3 2 2 3-3.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DirectionIcon({ direction }: { direction: "up" | "down" | "left" | "right" }) {
   const rotation = { up: 0, right: 90, down: 180, left: 270 }[direction];
   return (
@@ -112,6 +121,9 @@ export default function ArenaPage() {
   const [blob, setBlob] = useState<{ text: string; source: string } | null>(null);
   const [heat, setHeat] = useState<Map<string, number> | null>(null);
   const matchIdRef = useRef<string | null>(null);
+  const [chRender, setChRender] = useState(false);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const frameUrlRef = useRef<string | null>(null);
 
   // Boot either starts a new match or, with ?match=<id>&as=<playerId>, joins an
   // existing one and controls that player — that's what makes two browsers a real
@@ -242,6 +254,50 @@ export default function ArenaPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [sendIntent]);
+
+  // ClickHouse renders the frame: when the toggle is on, fetch the SQL-drawn <svg>
+  // (proxied same-origin) whenever the tick advances, and show it as an inert <img>.
+  // The bytes are wrapped in a blob: URL so nothing in them can execute or reach out.
+  useEffect(() => {
+    if (!chRender || !matchId) {
+      if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current);
+      frameUrlRef.current = null;
+      setFrameUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/arena/frame", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ matchId, humanId: humanId ?? -1 }),
+        });
+        if (!res.ok) throw new Error(`frame ${res.status}`);
+        const url = URL.createObjectURL(new Blob([await res.text()], { type: "image/svg+xml" }));
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current);
+        frameUrlRef.current = url;
+        setFrameUrl(url);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chRender, matchId, humanId, view?.tick]);
+
+  // Revoke the last object URL on unmount.
+  useEffect(
+    () => () => {
+      if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current);
+    },
+    [],
+  );
 
   const playerAt = new Map<string, Player>();
   for (const p of view?.players ?? []) if (p.alive) playerAt.set(`${p.x},${p.y}`, p);
@@ -374,6 +430,18 @@ export default function ArenaPage() {
               <HeatIcon />
               <span>{heat ? "Hide heat" : "Heatmap"}</span>
             </button>
+            <button
+              type="button"
+              className={`arena-icon-button${chRender ? " is-active" : ""}`}
+              onClick={() => setChRender((v) => !v)}
+              data-testid="arena-chrender-btn"
+              disabled={!matchId}
+              aria-pressed={chRender}
+              title={chRender ? "Show the client-rendered grid" : "Render the frame in ClickHouse"}
+            >
+              <FrameIcon />
+              <span>{chRender ? "Client grid" : "Render in CH"}</span>
+            </button>
           </div>
 
           <div className="arena-tick-status" data-testid="arena-status" aria-live="polite">
@@ -401,7 +469,21 @@ export default function ArenaPage() {
               <span className="arena-frame-corner arena-frame-corner-bl" aria-hidden="true" />
               <span className="arena-frame-corner arena-frame-corner-br" aria-hidden="true" />
 
-              {dims.width > 0 ? (
+              {chRender ? (
+                frameUrl ? (
+                  <img
+                    className="arena-ch-frame"
+                    data-testid="arena-ch-frame"
+                    src={frameUrl}
+                    alt="Live match frame rendered by ClickHouse"
+                  />
+                ) : (
+                  <div className="arena-stage-loading">
+                    <span />
+                    <p>ClickHouse is drawing the frame…</p>
+                  </div>
+                )
+              ) : dims.width > 0 ? (
                 <div
                   className="arena-grid"
                   data-testid="arena-grid"
@@ -556,7 +638,7 @@ export default function ArenaPage() {
               >
                 <span>Authoritative engine</span>
                 <strong>ClickHouse</strong>
-                <p>table: <code>match_state</code> · resolved in SQL{latency != null ? ` · ${latency}ms round-trip` : ""}</p>
+                <p>table: <code>match_state</code> · resolved in SQL{chRender ? " · rendered in SQL" : ""}{latency != null ? ` · ${latency}ms round-trip` : ""}</p>
               </div>
               <p className="arena-match-id" data-testid="arena-match-id">match: {matchId ?? "…"}</p>
             </section>

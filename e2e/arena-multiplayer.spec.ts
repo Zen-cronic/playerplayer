@@ -131,6 +131,29 @@ test.describe("arena: CH-authoritative multiplayer", () => {
     await ctx1.close();
     await ctx2.close();
   });
+
+  test("Rendered in ClickHouse — the grid is drawn by the database", async ({ page }, info) => {
+    const errors = collectErrors(page);
+    await page.goto("/arena?humans=1&bots=3");
+    await expect(page.getByTestId("arena-player-1")).toBeVisible();
+
+    // Toggle CH rendering: the client fetches the SQL-drawn <svg> and shows it as an <img>.
+    const frameResp = page.waitForResponse(
+      (r) => r.url().includes("/api/arena/frame") && r.request().method() === "POST",
+    );
+    await page.getByTestId("arena-chrender-btn").click();
+    const resp = await frameResp;
+    expect(resp.headers()["content-type"]).toContain("image/svg+xml");
+    expect(resp.headers()["x-arena-source"]).toMatch(/^clickhouse-rawblob/);
+
+    await expect(page.getByTestId("arena-ch-frame")).toBeVisible();
+    // The provenance chip now credits ClickHouse for the render, not just the resolve.
+    await expect(page.getByTestId("arena-provenance")).toContainText("rendered in SQL");
+
+    await assertNoHost(page);
+    expect(errors.pageErrors, "page crashed").toEqual([]);
+    await attachErrorReport(info, errors);
+  });
 });
 
 test.describe("api: /api/arena/* is a strict, same-origin write surface", () => {

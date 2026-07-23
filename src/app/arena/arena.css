@@ -539,6 +539,21 @@
 .arena-frame-corner-bl { bottom: 16px; left: 16px; border-bottom: 1px solid; border-left: 1px solid; }
 .arena-frame-corner-br { right: 16px; bottom: 16px; border-right: 1px solid; border-bottom: 1px solid; }
 
+.arena-ch-frame {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: min(100%, 680px);
+  height: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 6px;
+  background: #25262c;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 26px 70px rgba(0, 0, 0, 0.48);
+}
+
 .arena-grid {
   position: relative;
   z-index: 1;
