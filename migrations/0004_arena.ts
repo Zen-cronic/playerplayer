@@ -9,9 +9,13 @@ import type { Migration } from "./types";
 //
 // Coins are NOT a stored table: a coin is static geometry (kind='coin') and
 // "consumed" is derived from state history (no surviving player has stood on the
-// cell). That keeps tick resolution a single INSERT into match_state, so a
-// durable-loop retry guarded by "does tick T exist?" is idempotent with no
-// partial-write window.
+// cell). That keeps tick resolution a single INSERT into match_state.
+//
+// match_state is a ReplacingMergeTree(inserted_at) so concurrent advancers (a
+// durable loop racing a manual /step) that both resolve the same tick produce
+// byte-identical rows (deterministic resolution) that collapse to one per player;
+// every per-player read uses FINAL. The JS existence check is a fast-path skip, not
+// the correctness guarantee.
 export const arena: Migration = {
   id: 4,
   name: "arena",
