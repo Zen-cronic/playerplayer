@@ -168,7 +168,25 @@ async function corridorWalk(matchId: string): Promise<void> {
   const s = await getState(matchId);
   assert(posOf(s, 1).x === 4, "corridor walk stops at x=4 (wall at x=5 blocks the 5th step)");
   const status = await matchStatus(matchId);
-  assert(status.over === true, "single survivor -> match over");
+  assert(status.over === false, "solo match is not over before maxTicks");
+}
+
+// Last-player-standing ends a MULTIPLAYER match: two players, one steps on a hazard.
+async function lastStanding(matchId: string): Promise<void> {
+  const arena = parseAsciiArena([".H.", "..."]); // hazard at (1,0)
+  await createMatch(
+    { matchId, room: "duel", width: arena.width, height: arena.height, maxTicks: 20, tickMs: 200 },
+    arena.cells,
+    [
+      { playerId: 1, kind: "human", x: 0, y: 1 },
+      { playerId: 2, kind: "human", x: 1, y: 1 },
+    ],
+  );
+  await submitIntent(matchId, 0, 2, "up"); // P2 walks onto the hazard and dies
+  await resolveTick(matchId, 1);
+  const st = await matchStatus(matchId);
+  assert(st.alive === 1 && st.total === 2, "one of two players died on the hazard");
+  assert(st.over === true, "multiplayer match ends when one player remains");
 }
 
 // Real Tiled geometry reuse.
@@ -271,8 +289,10 @@ async function main(): Promise<void> {
   await spikeScenario(`${RUN}-spike`);
   console.log("scenario: determinism");
   await determinism();
-  console.log("scenario: corridor walk + match-over");
+  console.log("scenario: corridor walk (solo not-over)");
   await corridorWalk(`${RUN}-corridor`);
+  console.log("scenario: last player standing (multiplayer over)");
+  await lastStanding(`${RUN}-duel`);
   console.log("scenario: full bot match determinism (loop mechanics)");
   await fullMatchDeterminism();
   console.log("scenario: analytics reuse bridge (game_events + heatmap MV)");

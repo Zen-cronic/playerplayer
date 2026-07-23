@@ -389,6 +389,58 @@ export async function getState(matchId: string, tick?: number): Promise<PlayerSt
   }));
 }
 
+// All geometry cells for a match (static; the client renders the map once).
+export async function getGeometry(matchId: string): Promise<Cell[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `SELECT cell_x, cell_y, kind FROM match_geometry WHERE match_id = {matchId:String} ORDER BY cell_y, cell_x`,
+    query_params: { matchId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const rows = await rs.json<{ cell_x: string; cell_y: string; kind: CellKind }>();
+  return rows.map((r) => ({ x: Number(r.cell_x), y: Number(r.cell_y), kind: r.kind }));
+}
+
+export async function latestTick(matchId: string): Promise<number> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `SELECT max(tick) AS t FROM match_state WHERE match_id = {matchId:String}`,
+    query_params: { matchId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const [{ t }] = await rs.json<{ t: string }>();
+  return Number(t);
+}
+
+// Next seq for a player's input this tick, so a resubmission is a true last-write.
+export async function nextSeq(matchId: string, tick: number, playerId: number): Promise<number> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `SELECT max(seq) AS s, count() AS n FROM match_inputs
+            WHERE match_id = {matchId:String} AND tick = {tick:UInt32} AND player_id = {playerId:UInt32}`,
+    query_params: { matchId, tick, playerId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const [{ s, n }] = await rs.json<{ s: string; n: string }>();
+  return Number(n) > 0 ? Number(s) + 1 : 0;
+}
+
+// Advance the match one tick: bots act, ClickHouse resolves, telemetry emits. This
+// is exactly the per-tick body of the durable match-loop, also exposed to the
+// same-origin /step route for local play and deterministic (sleep-free) e2e.
+export async function advanceMatch(matchId: string): Promise<{ tick: number; advanced: boolean }> {
+  const frontier = await latestTick(matchId);
+  const status = await matchStatus(matchId);
+  if (status.over) return { tick: frontier, advanced: false };
+  await stepBots(matchId, frontier);
+  const wrote = await resolveTick(matchId, frontier + 1);
+  if (wrote) await emitTickTelemetry(matchId, frontier + 1);
+  return { tick: frontier + 1, advanced: wrote };
+}
+
 // Coin cells that survive at `tick`: a coin no surviving player has ever stood on.
 export async function coinsRemaining(matchId: string, tick: number): Promise<Cell[]> {
   const ch = getClickHouse();
@@ -459,6 +511,32 @@ export interface MatchStatus {
   over: boolean;
 }
 
+export interface MatchView {
+  tick: number;
+  over: boolean;
+  alive: number;
+  total: number;
+  players: PlayerState[];
+  coins: { x: number; y: number }[];
+}
+
+// Combined dynamic snapshot for the client (state + coins + status at the frontier).
+export async function matchView(matchId: string): Promise<MatchView> {
+  const status = await matchStatus(matchId);
+  const [players, coins] = await Promise.all([
+    getState(matchId, status.tick),
+    coinsRemaining(matchId, status.tick),
+  ]);
+  return {
+    tick: status.tick,
+    over: status.over,
+    alive: status.alive,
+    total: status.total,
+    players,
+    coins: coins.map((c) => ({ x: c.x, y: c.y })),
+  };
+}
+
 // A match is over when the clock hits max_ticks or at most one player is left alive.
 export async function matchStatus(matchId: string): Promise<MatchStatus> {
   const ch = getClickHouse();
@@ -482,5 +560,8 @@ export async function matchStatus(matchId: string): Promise<MatchStatus> {
   const alive = Number(row?.alive ?? 0);
   const total = Number(row?.total ?? 0);
   const maxTicks = Number(row?.max_ticks ?? 0);
-  return { tick, alive, total, maxTicks, over: tick >= maxTicks || alive <= 1 };
+  // "Last player standing" only ends a multiplayer match; a solo match (or the
+  // deterministic solo e2e) runs until the clock hits maxTicks.
+  const over = tick >= maxTicks || (total > 1 && alive <= 1);
+  return { tick, alive, total, maxTicks, over };
 }
