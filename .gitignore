@@ -8,8 +8,10 @@ dist/
 .trigger/
 .variants/
 
-docs/
+docs/*
+!docs/arena/
 references/
+explore/
 .claude/
 .codex/
 .agents/
