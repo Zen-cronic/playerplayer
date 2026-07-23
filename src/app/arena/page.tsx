@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import "./arena.css";
 
 // The ClickHouse Arena client. Renders the CH-authoritative grid world and posts
 // intents; ClickHouse resolves every tick. The provenance chip shows engine / table
@@ -11,15 +13,7 @@ interface Cell { x: number; y: number; kind: CellKind; }
 interface Player { playerId: number; x: number; y: number; score: number; alive: boolean; }
 interface View { tick: number; over: boolean; alive: number; total: number; players: Player[]; coins: { x: number; y: number }[]; }
 
-const CELL = 26;
-const KIND_BG: Record<CellKind, string> = {
-  floor: "#0f1729",
-  wall: "#334155",
-  hazard: "#7f1d1d",
-  spawn: "#0e3a2f",
-  coin: "#0f1729",
-};
-const PLAYER_COLORS = ["#22c55e", "#38bdf8", "#f59e0b", "#e879f9", "#f43f5e", "#a3e635", "#2dd4bf", "#fb923c"];
+const PLAYER_COLORS = ["#d8f24b", "#72d7ff", "#ffb45e", "#c9a9ff", "#ff7898", "#83e8c2", "#f9e46d", "#ff9c74"];
 
 const INTENT_BY_KEY: Record<string, string> = {
   ArrowUp: "up",
@@ -37,6 +31,63 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   });
   if (!res.ok) throw new Error(`${url} ${res.status}`);
   return res.json() as Promise<T>;
+}
+
+function ArenaMark() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M4 5h4v22H4zM10 5h4v8h-4zM10 16h4v11h-4zM16 5h4v22h-4zM22 5h4v6h-4zM22 14h4v13h-4z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m5 3 7 5-7 5V3Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M4 3h3v10H4zM9 3h3v10H9z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function StepIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m3.5 3 6.5 5-6.5 5V3ZM11 3h1.8v10H11V3Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M12.9 6A5.25 5.25 0 1 0 13 9.45M13 2.75V6H9.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DatabaseIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <ellipse cx="8" cy="3.5" rx="5" ry="2" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M3 3.5v4c0 1.1 2.24 2 5 2s5-.9 5-2v-4M3 7.5v4c0 1.1 2.24 2 5 2s5-.9 5-2v-4" stroke="currentColor" strokeWidth="1.25" />
+    </svg>
+  );
+}
+
+function HeatIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8.35 1.8c.5 2.3-.25 3.45-1.22 4.53C6.2 7.38 5.25 8.45 5.25 10a2.75 2.75 0 1 0 5.5 0c0-1.25-.52-2.38-1.37-3.42.08 1.17-.34 1.9-1.03 2.42.16-1.92-.8-3.02-1.73-4.08.82-.82 1.45-1.8 1.73-3.12Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 export default function ArenaPage() {
@@ -187,156 +238,344 @@ export default function ArenaPage() {
   for (const p of view?.players ?? []) if (p.alive) playerAt.set(`${p.x},${p.y}`, p);
   const coinAt = new Set((view?.coins ?? []).map((c) => `${c.x},${c.y}`));
   const heatMax = heat && heat.size > 0 ? Math.max(...Array.from(heat.values())) : 1;
+  const sortedPlayers = (view?.players ?? []).slice().sort((a, b) => a.playerId - b.playerId);
+  const sortedCells = cells.slice().sort((a, b) => a.y * 100000 + a.x - (b.y * 100000 + b.x));
+  const statusText = view
+    ? `tick ${view.tick} • alive ${view.alive}/${view.total}${view.over ? " • OVER" : ""}`
+    : "Preparing match…";
 
   return (
-    <main style={{ padding: 24, fontFamily: "ui-sans-serif, system-ui", color: "#e2e8f0", background: "#020617", minHeight: "100vh" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>ClickHouse Arena</h1>
-      <p style={{ color: "#94a3b8", marginTop: 0, maxWidth: 640 }}>
-        A live multiplayer grid game whose authoritative state is resolved by ClickHouse SQL,
-        one tick at a time. You control the bright token — arrow keys to move, space to hold.
-      </p>
+    <main className="arena-page">
+      <div className="arena-ambient arena-ambient-one" aria-hidden="true" />
+      <div className="arena-ambient arena-ambient-two" aria-hidden="true" />
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0", flexWrap: "wrap" }}>
-        <button onClick={() => void step()} data-testid="arena-step" style={btn}>Step</button>
-        <button onClick={() => setAuto((a) => !a)} data-testid="arena-auto" style={btn}>{auto ? "Pause" : "Auto"}</button>
-        <button onClick={() => void start()} data-testid="arena-new" style={btn} disabled={starting}>New match</button>
-        <button onClick={() => void loadBlob()} data-testid="arena-blob-btn" style={btn}>RawBLOB snapshot</button>
-        <button onClick={() => void toggleHeat()} data-testid="arena-heat-btn" style={btn}>{heat ? "Hide heatmap" : "Heatmap"}</button>
-        <span data-testid="arena-status" style={{ marginLeft: 8, color: "#cbd5e1" }}>
-          {view ? `tick ${view.tick} • alive ${view.alive}/${view.total}${view.over ? " • OVER" : ""}` : "…"}
-        </span>
-      </div>
+      <div className="arena-shell">
+        <header className="arena-topbar">
+          <Link href="/" className="arena-brand" aria-label="Back to PlayerPlayer">
+            <span className="arena-brand-mark">
+              <ArenaMark />
+            </span>
+            <span className="arena-brand-copy">
+              <strong>PLAYERPLAYER</strong>
+              <span>/ ARENA</span>
+            </span>
+          </Link>
 
-      <div
-        data-testid="arena-provenance"
-        style={{ fontSize: 12, color: "#7dd3fc", marginBottom: 12 }}
-      >
-        engine: ClickHouse · table: match_state · resolved in SQL{latency != null ? ` · ${latency}ms round-trip` : ""}
-      </div>
-
-      {error && <div data-testid="arena-error" style={{ color: "#fca5a5", marginBottom: 12 }}>{error}</div>}
-
-      {heat && (
-        <div data-testid="arena-heat-note" style={{ fontSize: 12, color: "#fca5a5", marginBottom: 12 }}>
-          activity heatmap · {heat.size} active cells · from the existing game_heatmap materialized view — the same
-          rollup that serves the single-player dashboard, now over a live multiplayer match with no new analytics code
-        </div>
-      )}
-
-      {blob && (
-        <div data-testid="arena-blob" style={{ marginBottom: 12, fontSize: 12 }}>
-          <div style={{ color: "#7dd3fc" }}>
-            served by ClickHouse (FORMAT RawBLOB) · source: <span data-testid="arena-blob-source">{blob.source}</span> · proxied same-origin
+          <div className="arena-connection">
+            <span className="arena-connection-dot" aria-hidden="true" />
+            <span>ClickHouse connected</span>
           </div>
-          <pre style={{ background: "#0b1220", padding: 8, borderRadius: 6, overflowX: "auto", maxWidth: 640, color: "#cbd5e1" }}>{blob.text}</pre>
-        </div>
-      )}
+        </header>
 
-      {dims.width > 0 && (
-        <div
-          data-testid="arena-grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${dims.width}, ${CELL}px)`,
-            gridTemplateRows: `repeat(${dims.height}, ${CELL}px)`,
-            gap: 1,
-            width: "fit-content",
-            background: "#1e293b",
-            padding: 1,
-            borderRadius: 6,
-          }}
-        >
-          {cells
-            .slice()
-            .sort((a, b) => a.y * 100000 + a.x - (b.y * 100000 + b.x))
-            .map((c) => {
-              const key = `${c.x},${c.y}`;
-              const player = playerAt.get(key);
-              const hasCoin = coinAt.has(key);
-              return (
+        <section className="arena-hero">
+          <div className="arena-hero-copy">
+            <p className="arena-kicker"><span aria-hidden="true">◆</span> SQL-authoritative multiplayer</p>
+            <h1>ClickHouse <em>Arena</em></h1>
+            <p>
+              Every player submits an intent. ClickHouse resolves the world.
+              One shared state, one tick at a time.
+            </p>
+          </div>
+
+          <div className="arena-metrics" aria-label="Live match metrics">
+            <div className="arena-metric">
+              <span>Tick</span>
+              <strong>{view?.tick ?? "—"}</strong>
+              <small>of 120</small>
+            </div>
+            <div className="arena-metric">
+              <span>Active</span>
+              <strong>{view ? `${view.alive}/${view.total}` : "—"}</strong>
+              <small>players</small>
+            </div>
+            <div className="arena-metric">
+              <span>Round trip</span>
+              <strong>{latency == null ? "—" : latency}</strong>
+              <small>{latency == null ? "awaiting step" : "milliseconds"}</small>
+            </div>
+          </div>
+        </section>
+
+        {error && (
+          <div className="arena-alert" data-testid="arena-error" role="alert">
+            <span aria-hidden="true">!</span>
+            <div>
+              <strong>Match connection interrupted</strong>
+              <p>{error}</p>
+            </div>
+          </div>
+        )}
+
+        <section className="arena-command-deck" aria-label="Match controls">
+          <div className="arena-command-primary">
+            <button
+              type="button"
+              className={`arena-button arena-button-primary${auto ? " is-active" : ""}`}
+              onClick={() => setAuto((a) => !a)}
+              data-testid="arena-auto"
+              aria-pressed={auto}
+              disabled={!matchId || view?.over}
+            >
+              {auto ? <PauseIcon /> : <PlayIcon />}
+              {auto ? "Pause run" : "Auto-play"}
+            </button>
+            <button
+              type="button"
+              className="arena-button"
+              onClick={() => void step()}
+              data-testid="arena-step"
+              disabled={!matchId || view?.over}
+            >
+              <StepIcon />
+              Step tick
+            </button>
+            <button
+              type="button"
+              className="arena-button arena-button-quiet"
+              onClick={() => void start()}
+              data-testid="arena-new"
+              disabled={starting}
+            >
+              <RefreshIcon />
+              {starting ? "Starting…" : "New match"}
+            </button>
+          </div>
+
+          <div className="arena-command-secondary">
+            <button
+              type="button"
+              className="arena-icon-button"
+              onClick={() => void loadBlob()}
+              data-testid="arena-blob-btn"
+              disabled={!matchId}
+              title="Load RawBLOB snapshot"
+            >
+              <DatabaseIcon />
+              <span>Raw snapshot</span>
+            </button>
+            <button
+              type="button"
+              className={`arena-icon-button${heat ? " is-active" : ""}`}
+              onClick={() => void toggleHeat()}
+              data-testid="arena-heat-btn"
+              disabled={!matchId}
+              aria-pressed={Boolean(heat)}
+              title={heat ? "Hide activity heatmap" : "Show activity heatmap"}
+            >
+              <HeatIcon />
+              <span>{heat ? "Hide heat" : "Heatmap"}</span>
+            </button>
+          </div>
+
+          <div className="arena-tick-status" data-testid="arena-status" aria-live="polite">
+            <span className={`arena-tick-dot${auto ? " is-running" : ""}`} aria-hidden="true" />
+            <span>{statusText}</span>
+          </div>
+        </section>
+
+        <div className="arena-workspace">
+          <section className="arena-stage-panel">
+            <div className="arena-panel-heading">
+              <div>
+                <span className="arena-panel-index">01 / Live field</span>
+                <h2>Match floor</h2>
+              </div>
+              <span className="arena-round-badge">
+                <span aria-hidden="true" />
+                {view?.over ? "match complete" : "round live"}
+              </span>
+            </div>
+
+            <div className="arena-stage">
+              <span className="arena-frame-corner arena-frame-corner-tl" aria-hidden="true" />
+              <span className="arena-frame-corner arena-frame-corner-tr" aria-hidden="true" />
+              <span className="arena-frame-corner arena-frame-corner-bl" aria-hidden="true" />
+              <span className="arena-frame-corner arena-frame-corner-br" aria-hidden="true" />
+
+              {dims.width > 0 ? (
                 <div
-                  key={key}
-                  data-testid={heat && heat.has(key) ? "arena-heat-cell" : undefined}
+                  className="arena-grid"
+                  data-testid="arena-grid"
+                  aria-label={`${dims.width} by ${dims.height} multiplayer arena`}
                   style={{
-                    width: CELL,
-                    height: CELL,
-                    background:
-                      heat && heat.get(key)
-                        ? `rgba(239,68,68,${(0.2 + 0.7 * (heat.get(key)! / heatMax)).toFixed(3)})`
-                        : KIND_BG[c.kind],
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 12,
-                    fontWeight: 700,
+                    gridTemplateColumns: `repeat(${dims.width}, minmax(0, 1fr))`,
+                    aspectRatio: `${dims.width} / ${dims.height}`,
                   }}
                 >
-                  {player ? (
-                    <span
-                      style={{
-                        width: CELL - 8,
-                        height: CELL - 8,
-                        borderRadius: "50%",
-                        background: PLAYER_COLORS[(player.playerId - 1) % PLAYER_COLORS.length],
-                        color: "#020617",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        outline: player.playerId === humanId ? "2px solid #fff" : "none",
-                      }}
-                    >
-                      {player.playerId}
-                    </span>
-                  ) : hasCoin ? (
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24" }} />
-                  ) : c.kind === "hazard" ? (
-                    <span style={{ color: "#fca5a5" }}>×</span>
-                  ) : null}
-                </div>
-              );
-            })}
-        </div>
-      )}
+                  {sortedCells.map((c) => {
+                    const key = `${c.x},${c.y}`;
+                    const player = playerAt.get(key);
+                    const hasCoin = coinAt.has(key);
+                    const heatValue = heat?.get(key);
+                    const isHeated = heatValue != null;
+                    const heatStyle = isHeated
+                      ? { "--arena-heat-alpha": (0.2 + 0.72 * (heatValue / heatMax)).toFixed(3) } as CSSProperties
+                      : undefined;
 
-      <div style={{ marginTop: 16 }}>
-        <div style={{ color: "#94a3b8", marginBottom: 4 }} data-testid="arena-match-id">match: {matchId ?? "…"}</div>
-        <table style={{ borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ color: "#64748b", textAlign: "left" }}>
-              <th style={th}>player</th><th style={th}>cell</th><th style={th}>score</th><th style={th}>alive</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(view?.players ?? [])
-              .slice()
-              .sort((a, b) => a.playerId - b.playerId)
-              .map((p) => (
-                <tr key={p.playerId} data-testid={`arena-player-${p.playerId}`}>
-                  <td style={td}>
-                    <span style={{ color: PLAYER_COLORS[(p.playerId - 1) % PLAYER_COLORS.length] }}>
-                      P{p.playerId}{p.playerId === humanId ? " (you)" : ""}
-                    </span>
-                  </td>
-                  <td style={td} data-testid={`arena-player-${p.playerId}-cell`}>{p.x},{p.y}</td>
-                  <td style={td} data-testid={`arena-player-${p.playerId}-score`}>{p.score}</td>
-                  <td style={td} data-testid={`arena-player-${p.playerId}-alive`}>{p.alive ? "yes" : "no"}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
+                    return (
+                      <div
+                        key={key}
+                        className={`arena-cell arena-cell-${c.kind}${isHeated ? " is-heated" : ""}`}
+                        data-testid={heat && heat.has(key) ? "arena-heat-cell" : undefined}
+                        style={heatStyle}
+                        title={`${c.kind} · ${c.x},${c.y}`}
+                      >
+                        {player ? (
+                          <span
+                            className={`arena-player-token${player.playerId === humanId ? " is-human" : ""}`}
+                            style={{ "--arena-player-color": PLAYER_COLORS[(player.playerId - 1) % PLAYER_COLORS.length] } as CSSProperties}
+                            title={`Player ${player.playerId}${player.playerId === humanId ? " — you" : ""}`}
+                          >
+                            {player.playerId}
+                          </span>
+                        ) : hasCoin ? (
+                          <span className="arena-coin" title="Coin" />
+                        ) : c.kind === "hazard" ? (
+                          <span className="arena-hazard-mark" aria-hidden="true">×</span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="arena-stage-loading">
+                  <span />
+                  <p>Building match state</p>
+                </div>
+              )}
+            </div>
+
+            <div className="arena-legend" aria-label="Arena legend">
+              <span><i className="arena-legend-player" /> Player</span>
+              <span><i className="arena-legend-coin" /> Coin</span>
+              <span><i className="arena-legend-hazard" /> Hazard</span>
+              <span><i className="arena-legend-spawn" /> Spawn</span>
+              <span className="arena-legend-hint">Bright outline = you</span>
+            </div>
+          </section>
+
+          <aside className="arena-sidebar">
+            <section className="arena-side-panel arena-score-panel">
+              <div className="arena-panel-heading arena-panel-heading-small">
+                <div>
+                  <span className="arena-panel-index">02 / Roster</span>
+                  <h2>Scoreboard</h2>
+                </div>
+                <span className="arena-player-count">{view?.total ?? 0}P</span>
+              </div>
+
+              <div className="arena-table-wrap">
+                <table className="arena-scoreboard">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Cell</th>
+                      <th>Score</th>
+                      <th>Live</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedPlayers.map((p) => {
+                      const playerColor = PLAYER_COLORS[(p.playerId - 1) % PLAYER_COLORS.length];
+                      return (
+                        <tr
+                          key={p.playerId}
+                          data-testid={`arena-player-${p.playerId}`}
+                          className={p.alive ? "" : "is-out"}
+                          style={{ "--arena-player-color": playerColor } as CSSProperties}
+                        >
+                          <td>
+                            <span className="arena-roster-dot" />
+                            <strong>P{p.playerId}</strong>
+                            {p.playerId === humanId && <span className="arena-you-badge">you</span>}
+                          </td>
+                          <td data-testid={`arena-player-${p.playerId}-cell`}>{p.x},{p.y}</td>
+                          <td data-testid={`arena-player-${p.playerId}-score`}>{p.score}</td>
+                          <td data-testid={`arena-player-${p.playerId}-alive`}>
+                            <span className={`arena-alive-state${p.alive ? "" : " is-out"}`}>{p.alive ? "yes" : "no"}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="arena-side-panel arena-input-panel">
+              <div className="arena-panel-heading arena-panel-heading-small">
+                <div>
+                  <span className="arena-panel-index">03 / Input</span>
+                  <h2>Your controls</h2>
+                </div>
+                <span className="arena-control-mode">P{humanId ?? "—"}</span>
+              </div>
+
+              <div className="arena-input-body">
+                <div className="arena-keyboard-copy">
+                  <p><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> move</p>
+                  <p><kbd>space</kbd> hold position</p>
+                  <small>Submit an intent, then advance the tick.</small>
+                </div>
+              </div>
+            </section>
+
+            <section className="arena-side-panel arena-engine-panel">
+              <div className="arena-engine-icon">
+                <DatabaseIcon />
+              </div>
+              <div
+                className="arena-provenance"
+                data-testid="arena-provenance"
+              >
+                <span>Authoritative engine</span>
+                <strong>ClickHouse</strong>
+                <p>table: <code>match_state</code> · resolved in SQL{latency != null ? ` · ${latency}ms round-trip` : ""}</p>
+              </div>
+              <p className="arena-match-id" data-testid="arena-match-id">match: {matchId ?? "…"}</p>
+            </section>
+          </aside>
+        </div>
+
+        {(heat || blob) && (
+          <section className="arena-inspector-grid" aria-label="Match data inspector">
+            {heat && (
+              <article className="arena-inspector arena-heat-inspector" data-testid="arena-heat-note">
+                <div className="arena-inspector-icon"><HeatIcon /></div>
+                <div>
+                  <span className="arena-panel-index">Activity layer</span>
+                  <h2>{heat.size} active cells</h2>
+                  <p>
+                    Read from the existing <code>game_heatmap</code> materialized view — the same rollup
+                    that serves the single-player dashboard, now over this live multiplayer match.
+                  </p>
+                </div>
+              </article>
+            )}
+
+            {blob && (
+              <article className="arena-inspector arena-blob-inspector" data-testid="arena-blob">
+                <div className="arena-blob-heading">
+                  <div>
+                    <span className="arena-panel-index">Raw state payload</span>
+                    <h2>ClickHouse snapshot</h2>
+                  </div>
+                  <span className="arena-source-badge">
+                    source: <strong data-testid="arena-blob-source">{blob.source}</strong>
+                  </span>
+                </div>
+                <p className="arena-blob-proxy">FORMAT RawBLOB · proxied same-origin</p>
+                <pre>{blob.text}</pre>
+              </article>
+            )}
+          </section>
+        )}
+
+        <footer className="arena-footer">
+          <span>Intent → ClickHouse → resolved state</span>
+          <span>Live multiplayer simulation / PlayerPlayer 2026</span>
+        </footer>
       </div>
     </main>
   );
 }
-
-const btn: React.CSSProperties = {
-  background: "#1e293b",
-  color: "#e2e8f0",
-  border: "1px solid #334155",
-  borderRadius: 6,
-  padding: "6px 12px",
-  cursor: "pointer",
-  fontSize: 13,
-};
-const th: React.CSSProperties = { padding: "4px 12px 4px 0", fontWeight: 600 };
-const td: React.CSSProperties = { padding: "3px 12px 3px 0" };
