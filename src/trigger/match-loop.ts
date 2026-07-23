@@ -1,24 +1,18 @@
 import { metadata, schemaTask, wait } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { arenaQueue } from "./queues";
-import {
-  isTickResolved,
-  stepBots,
-  resolveTick,
-  emitTickTelemetry,
-  matchStatus,
-} from "../lib/arena";
+import { advanceMatch, matchStatus } from "../lib/arena";
 
 // The authoritative game clock. A durable per-match task that advances the match
 // one tick at a time: it lets bots submit intents, asks ClickHouse to resolve the
 // tick (the DB is the server), emits telemetry into the shared game_events
 // envelope, and publishes progress via metadata for the Realtime client.
 //
-// Idempotency is structural: resolveTick is a no-op if tick T already exists, so a
-// retry that resumes this loop fast-forwards already-resolved ticks and can never
-// double-advance the world. Telemetry and bot intents are only produced on the tick
-// that actually advances, so a fast-forward re-run neither double-emits nor
-// double-inserts intents. Bounded by maxTicks and maxDuration.
+// Idempotency is structural and rests on tested code: each tick is one advanceMatch
+// call, which advances from the current frontier (latest resolved tick) and emits
+// telemetry only when it actually wrote a new tick. A whole-loop retry after a crash
+// re-enters run() and continues from wherever the frontier already is — it never
+// re-resolves or re-emits a past tick. Bounded by maxTicks and maxDuration.
 export const matchLoop = schemaTask({
   id: "arena-match-loop",
   queue: arenaQueue,
@@ -34,28 +28,21 @@ export const matchLoop = schemaTask({
     metadata.set("matchId", matchId).set("tick", 0).set("status", "running");
     let finalTick = 0;
 
-    for (let tick = 1; tick <= maxTicks; tick++) {
-      if (await isTickResolved(matchId, tick)) {
-        // Retry fast-forward: this tick already advanced on a prior attempt.
-        const s = await matchStatus(matchId);
-        finalTick = s.tick;
-        metadata.set("tick", s.tick).set("alive", s.alive);
-        if (s.over) {
-          metadata.set("status", "over");
-          break;
-        }
-        continue;
+    // At most maxTicks iterations; the match also ends when matchStatus reports over
+    // (clock hit max_ticks, or last player standing in a multiplayer match).
+    for (let i = 0; i < maxTicks; i++) {
+      const before = await matchStatus(matchId);
+      if (before.over) {
+        finalTick = before.tick;
+        metadata.set("status", "over").set("tick", before.tick);
+        break;
       }
-
       await wait.for({ seconds: tickSeconds });
-      await stepBots(matchId, tick - 1);
-      await resolveTick(matchId, tick);
-      await emitTickTelemetry(matchId, tick);
-
-      const status = await matchStatus(matchId);
-      finalTick = status.tick;
-      metadata.set("tick", status.tick).set("alive", status.alive);
-      if (status.over) {
+      await advanceMatch(matchId);
+      const after = await matchStatus(matchId);
+      finalTick = after.tick;
+      metadata.set("tick", after.tick).set("alive", after.alive);
+      if (after.over) {
         metadata.set("status", "over");
         break;
       }

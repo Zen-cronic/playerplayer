@@ -5,6 +5,7 @@ import {
   submitIntent,
   stepBots,
   resolveTick,
+  advanceMatch,
   emitTickTelemetry,
   getState,
   coinsRemaining,
@@ -316,6 +317,64 @@ async function fullMatchDeterminism(): Promise<void> {
   assert(a.digest === b.digest, `full 4-bot match is deterministic run-to-run (digest ${a.digest})`);
 }
 
+// The durable loop advances via advanceMatch. A whole-loop retry (Trigger crash-
+// restart) must add no state rows and re-emit no telemetry — idempotent at the loop
+// level, not just at resolveTick.
+async function loopIdempotency(matchId: string): Promise<void> {
+  const arena = parseAsciiArena(ARENA_PRESETS.demo);
+  const starts = assignSpawns(arena, 3);
+  const players = starts.map((s, i) => ({
+    playerId: i + 1,
+    kind: "bot" as const,
+    archetype: BOT_ARCHETYPES[i % BOT_ARCHETYPES.length],
+    seed: `idem:${i + 1}`,
+    x: s.x,
+    y: s.y,
+  }));
+  await createMatch(
+    { matchId, room: "demo", width: arena.width, height: arena.height, maxTicks: 8, tickMs: 0 },
+    arena.cells,
+    players,
+  );
+  const ch = getClickHouse();
+  const countState = async () => {
+    const rs = await ch.query({
+      query: `SELECT count() AS n FROM match_state WHERE match_id = {m:String}`,
+      query_params: { m: matchId },
+      format: "JSONEachRow",
+    });
+    const [{ n }] = await rs.json<{ n: string }>();
+    return Number(n);
+  };
+  const countTele = async () => {
+    const rs = await ch.query({
+      query: `SELECT count() AS n FROM game_events WHERE game_id = 'arena-grid' AND experiment_id = {m:String}`,
+      query_params: { m: matchId },
+      format: "JSONEachRow",
+    });
+    const [{ n }] = await rs.json<{ n: string }>();
+    return Number(n);
+  };
+
+  const runLoop = async () => {
+    for (let i = 0; i < 8; i++) {
+      const s = await matchStatus(matchId);
+      if (s.over) break;
+      await advanceMatch(matchId);
+    }
+  };
+  await runLoop();
+  const stateA = await countState();
+  const teleA = await countTele();
+  await runLoop(); // simulate a crash-restart of the durable loop
+  const stateB = await countState();
+  const teleB = await countTele();
+
+  assert(stateA > 0 && teleA > 0, `loop produced state+telemetry (state=${stateA}, tele=${teleA})`);
+  assert(stateA === stateB, "loop retry adds no state rows (idempotent)");
+  assert(teleA === teleB, "loop retry re-emits no telemetry (idempotent)");
+}
+
 async function main(): Promise<void> {
   console.log(`arena:check against ${URL} (run ${RUN})`);
   console.log("scenario: spike rules");
@@ -330,6 +389,8 @@ async function main(): Promise<void> {
   await lastStanding(`${RUN}-duel`);
   console.log("scenario: full bot match determinism (loop mechanics)");
   await fullMatchDeterminism();
+  console.log("scenario: loop-level idempotency (crash-restart is a no-op)");
+  await loopIdempotency(`${RUN}-idem`);
   console.log("scenario: analytics reuse bridge (game_events + heatmap MV)");
   await telemetryBridge(`${RUN}-tele`);
   console.log("scenario: real Tiled level reuse");
