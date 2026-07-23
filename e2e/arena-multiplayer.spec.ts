@@ -78,6 +78,14 @@ test.describe("arena: CH-authoritative multiplayer", () => {
     await expect(page.getByTestId("arena-blob")).toContainText("playerId");
     await expect(page.getByTestId("arena-blob-source")).toContainText("clickhouse-rawblob");
 
+    // The activity heatmap is read from the EXISTING game_heatmap MV over this match —
+    // the analytics reuse win, surfaced in the UI.
+    const heatResp = page.waitForResponse((r) => r.url().includes("/api/arena/heatmap"));
+    await page.getByTestId("arena-heat-btn").click();
+    await heatResp;
+    await expect(page.getByTestId("arena-heat-note")).toBeVisible();
+    await expect(page.getByTestId("arena-heat-cell").first()).toBeVisible();
+
     await assertNoHost(page);
     expect(errors.pageErrors, "page crashed").toEqual([]);
     await attachErrorReport(info, errors);

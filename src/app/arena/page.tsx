@@ -50,6 +50,7 @@ export default function ArenaPage() {
   const [latency, setLatency] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [blob, setBlob] = useState<{ text: string; source: string } | null>(null);
+  const [heat, setHeat] = useState<Map<string, number> | null>(null);
   const matchIdRef = useRef<string | null>(null);
 
   // Boot either starts a new match or, with ?match=<id>&as=<playerId>, joins an
@@ -118,6 +119,23 @@ export default function ArenaPage() {
     [humanId],
   );
 
+  // Toggle the activity heatmap read from the existing game_heatmap MV over this
+  // match — the analytics reuse win, made visible.
+  const toggleHeat = useCallback(async () => {
+    if (heat) {
+      setHeat(null);
+      return;
+    }
+    const id = matchIdRef.current;
+    if (!id) return;
+    try {
+      const res = await postJson<{ cells: { x: number; y: number; n: number }[] }>("/api/arena/heatmap", { matchId: id });
+      setHeat(new Map(res.cells.map((c) => [`${c.x},${c.y}`, c.n])));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [heat]);
+
   const loadBlob = useCallback(async () => {
     const id = matchIdRef.current;
     if (!id) return;
@@ -168,6 +186,7 @@ export default function ArenaPage() {
   const playerAt = new Map<string, Player>();
   for (const p of view?.players ?? []) if (p.alive) playerAt.set(`${p.x},${p.y}`, p);
   const coinAt = new Set((view?.coins ?? []).map((c) => `${c.x},${c.y}`));
+  const heatMax = heat && heat.size > 0 ? Math.max(...Array.from(heat.values())) : 1;
 
   return (
     <main style={{ padding: 24, fontFamily: "ui-sans-serif, system-ui", color: "#e2e8f0", background: "#020617", minHeight: "100vh" }}>
@@ -182,6 +201,7 @@ export default function ArenaPage() {
         <button onClick={() => setAuto((a) => !a)} data-testid="arena-auto" style={btn}>{auto ? "Pause" : "Auto"}</button>
         <button onClick={() => void start()} data-testid="arena-new" style={btn} disabled={starting}>New match</button>
         <button onClick={() => void loadBlob()} data-testid="arena-blob-btn" style={btn}>RawBLOB snapshot</button>
+        <button onClick={() => void toggleHeat()} data-testid="arena-heat-btn" style={btn}>{heat ? "Hide heatmap" : "Heatmap"}</button>
         <span data-testid="arena-status" style={{ marginLeft: 8, color: "#cbd5e1" }}>
           {view ? `tick ${view.tick} • alive ${view.alive}/${view.total}${view.over ? " • OVER" : ""}` : "…"}
         </span>
@@ -195,6 +215,13 @@ export default function ArenaPage() {
       </div>
 
       {error && <div data-testid="arena-error" style={{ color: "#fca5a5", marginBottom: 12 }}>{error}</div>}
+
+      {heat && (
+        <div data-testid="arena-heat-note" style={{ fontSize: 12, color: "#fca5a5", marginBottom: 12 }}>
+          activity heatmap · {heat.size} active cells · from the existing game_heatmap materialized view — the same
+          rollup that serves the single-player dashboard, now over a live multiplayer match with no new analytics code
+        </div>
+      )}
 
       {blob && (
         <div data-testid="arena-blob" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -229,10 +256,14 @@ export default function ArenaPage() {
               return (
                 <div
                   key={key}
+                  data-testid={heat && heat.has(key) ? "arena-heat-cell" : undefined}
                   style={{
                     width: CELL,
                     height: CELL,
-                    background: KIND_BG[c.kind],
+                    background:
+                      heat && heat.get(key)
+                        ? `rgba(239,68,68,${(0.2 + 0.7 * (heat.get(key)! / heatMax)).toFixed(3)})`
+                        : KIND_BG[c.kind],
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",

@@ -588,6 +588,29 @@ export interface MatchStatus {
   over: boolean;
 }
 
+// Per-cell activity density for a match, read straight from the EXISTING
+// game_heatmap materialized view (game_id='arena-grid'). This is the analytics reuse
+// win made visible: the same rollup that serves the single-player dashboard serves a
+// live multiplayer match with no new aggregation. gx/gy are the arena cells (events
+// were emitted at cell*ARENA_TILE, so the MV's floor(x/16) is the cell).
+export async function getArenaHeatmap(matchId: string): Promise<{ x: number; y: number; n: number }[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
+    query: `
+      SELECT gx, gy, toUInt64(sum(n)) AS n
+      FROM game_heatmap
+      WHERE game_id = {gameId:String} AND experiment_id = {matchId:String}
+      GROUP BY gx, gy
+      ORDER BY gx, gy
+    `,
+    query_params: { gameId: ARENA_GAME_ID, matchId },
+    format: "JSONEachRow",
+    clickhouse_settings: READ_SETTINGS,
+  });
+  const rows = await rs.json<{ gx: string; gy: string; n: string }>();
+  return rows.map((r) => ({ x: Number(r.gx), y: Number(r.gy), n: Number(r.n) }));
+}
+
 export interface MatchView {
   tick: number;
   over: boolean;
