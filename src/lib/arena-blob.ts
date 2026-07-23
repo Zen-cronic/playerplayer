@@ -22,6 +22,18 @@ export interface SnapshotResult {
   source: "clickhouse-rawblob" | "clickhouse-rawblob-fallback";
 }
 
+// Validate the bytes are the snapshot (a JSON array) before they can reach the
+// browser. ClickHouse can return HTTP 200 and then append an exception to a FORMAT
+// response on a mid-stream error (memory/time cap, shard failure); such text can
+// embed host:port. Re-serializing a parsed array strips any trailing bytes, and a
+// non-array/parse failure throws — the route's generic catch turns it into a 500, so
+// an upstream exception string never surfaces to the client.
+function assertSnapshot(blob: string): string {
+  const parsed = JSON.parse(blob);
+  if (!Array.isArray(parsed)) throw new Error("unexpected snapshot shape");
+  return JSON.stringify(parsed);
+}
+
 // Returns the snapshot JSON bytes + which path served them. Never returns or logs
 // the CH host. `source` is honest: the fallback (no ARENA_READER_URL) runs the same
 // query through the main client and is labelled as such — never presented as the
@@ -40,7 +52,7 @@ export async function snapshotBlob(matchId: string): Promise<SnapshotResult> {
       body: SNAPSHOT_SQL + " FORMAT RawBLOB",
     });
     if (!res.ok) throw new Error(`arena_reader responded ${res.status}`);
-    return { blob: (await res.text()).trim(), source: "clickhouse-rawblob" };
+    return { blob: assertSnapshot((await res.text()).trim()), source: "clickhouse-rawblob" };
   }
 
   const ch = getClickHouse();
@@ -51,5 +63,5 @@ export async function snapshotBlob(matchId: string): Promise<SnapshotResult> {
     clickhouse_settings: READ_SETTINGS,
   });
   const [row] = await rs.json<{ blob: string }>();
-  return { blob: row?.blob ?? "[]", source: "clickhouse-rawblob-fallback" };
+  return { blob: assertSnapshot(row?.blob ?? "[]"), source: "clickhouse-rawblob-fallback" };
 }
