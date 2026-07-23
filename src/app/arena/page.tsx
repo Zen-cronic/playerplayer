@@ -90,6 +90,15 @@ function HeatIcon() {
   );
 }
 
+function DirectionIcon({ direction }: { direction: "up" | "down" | "left" | "right" }) {
+  const rotation = { up: 0, right: 90, down: 180, left: 270 }[direction];
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" style={{ transform: `rotate(${rotation}deg)` }}>
+      <path d="m8 3 5 6H9.5v4h-3V9H3l5-6Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 export default function ArenaPage() {
   const [matchId, setMatchId] = useState<string | null>(null);
   const [dims, setDims] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -512,6 +521,23 @@ export default function ArenaPage() {
               </div>
 
               <div className="arena-input-body">
+                <div className="arena-dpad" aria-label="Directional controls">
+                  <button type="button" className="arena-dpad-up" onClick={() => void sendIntent("up")} aria-label="Move up">
+                    <DirectionIcon direction="up" />
+                  </button>
+                  <button type="button" className="arena-dpad-left" onClick={() => void sendIntent("left")} aria-label="Move left">
+                    <DirectionIcon direction="left" />
+                  </button>
+                  <button type="button" className="arena-dpad-stay" onClick={() => void sendIntent("stay")} aria-label="Hold position">
+                    <span />
+                  </button>
+                  <button type="button" className="arena-dpad-right" onClick={() => void sendIntent("right")} aria-label="Move right">
+                    <DirectionIcon direction="right" />
+                  </button>
+                  <button type="button" className="arena-dpad-down" onClick={() => void sendIntent("down")} aria-label="Move down">
+                    <DirectionIcon direction="down" />
+                  </button>
+                </div>
                 <div className="arena-keyboard-copy">
                   <p><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> move</p>
                   <p><kbd>space</kbd> hold position</p>
