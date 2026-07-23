@@ -10,6 +10,7 @@ dist/
 
 docs/
 references/
+explore/
 .claude/
 .codex/
 .agents/
