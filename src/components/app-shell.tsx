@@ -29,12 +29,12 @@ export function AppHeader({ active }: { active: DemoRoute }) {
   return (
     <header className="app-header">
       <div className="app-header-inner">
-        <Link href="/" className="brand-lockup" aria-label="Playtest Swarm home">
+        <Link href="/" className="brand-lockup" aria-label="PlayerPlayer home">
           <span className="brand-mark-wrap">
             <SwarmMark className="brand-mark" />
           </span>
           <span>
-            <span className="brand-name">Playtest Swarm</span>
+            <span className="brand-name">PlayerPlayer</span>
             <span className="brand-subtitle">AI playtest operations</span>
           </span>
         </Link>

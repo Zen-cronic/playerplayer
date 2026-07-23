@@ -11,7 +11,7 @@ test.describe("smoke: game + popover mount at /", () => {
 
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Playtest Swarm", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "PlayerPlayer", level: 1 })).toBeVisible();
 
     // Phaser injects a <canvas> into the host once the scene boots.
     await expect(page.locator("canvas").first()).toBeVisible({ timeout: 30_000 });
@@ -22,7 +22,7 @@ test.describe("smoke: game + popover mount at /", () => {
 
     // Opening it reveals the panel chrome (header + expand/close controls).
     await launcher.click();
-    await expect(page.getByText("Playtest Swarm", { exact: true }).last()).toBeVisible();
+    await expect(page.getByText("PlayerPlayer", { exact: true }).last()).toBeVisible();
     await expect(page.getByRole("button", { name: "expand" })).toBeVisible();
     await expect(page.getByRole("button", { name: "close" })).toBeVisible();
 

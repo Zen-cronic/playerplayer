@@ -1,4 +1,4 @@
-# Playtest Swarm
+# PlayerPlayer
 
 **The agent that re-runs your level to prove the fix.**
 
@@ -138,13 +138,13 @@ database is doing real work, not decorating a toy table.
 
 ## Install into your own game (SDK)
 
-The chat widget is extracted as an npm package, **`playtest-copilot`**, and this
+The chat widget is extracted as an npm package, **`@playerplayer/sdk`**, and this
 app dogfoods it — the game popover, `/chat`, and the dashboard drill-in all
 import the package, not the source.
 
 ```tsx
-import { CopilotPopover } from "playtest-copilot";
-import "playtest-copilot/styles.css"; // compiled utilities — no Tailwind required
+import { CopilotPopover } from "@playerplayer/sdk";
+import "@playerplayer/sdk/styles.css"; // compiled utilities — no Tailwind required
 
 <CopilotPopover
   accessToken={({ chatId }) => mintChatAccessToken(chatId)}   // your server action
@@ -169,8 +169,8 @@ new engine implements only `run()`. The repo ships the Phaser adapter
 (`phaserAdapter`), and the swarm's bot-run task drives the game exclusively
 through it.
 
-> The package builds locally (`pnpm --filter playtest-copilot build`) and passes
-> `npm pack` clean; **publishing it to npm as `playtest-copilot` is a
+> The package builds locally (`pnpm --filter @playerplayer/sdk build`) and passes
+> `npm pack` clean; **publishing it to npm as `@playerplayer/sdk` is a
 > submission-time step**, so the registry entry may not exist until then. The
 > snippet above is the shipping API, and this app already imports the package
 > (not the source), so the integration is exercised regardless.

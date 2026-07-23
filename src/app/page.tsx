@@ -15,7 +15,7 @@ export default function Home() {
         <section className="home-hero">
           <div className="home-story">
             <p className="eyebrow">Live judge demo · Level 01</p>
-            <h1 className="home-product-name">Playtest Swarm</h1>
+            <h1 className="home-product-name">PlayerPlayer</h1>
             <p className="home-thesis">Turn playtests into proof.</p>
             <p className="home-dek">
               Play the level once. A durable AI agent sends a matched bot swarm,

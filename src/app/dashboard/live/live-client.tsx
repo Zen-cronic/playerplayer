@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LevelCanvas } from "playtest-copilot";
+import { LevelCanvas } from "@playerplayer/sdk";
 import { fetchLiveOps, launchLiveSwarm } from "../../actions";
 import type { LiveOpsSnapshot } from "../../../lib/ops-queries";
 

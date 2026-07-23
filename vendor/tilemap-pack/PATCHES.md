@@ -2,7 +2,7 @@
 
 Upstream: https://github.com/B3L7/phaser3-tilemap-pack @ `365d09d2b8f7c9160346c23591eff25056e0914b` (MIT, see LICENSE).
 
-A top-down dungeon crawler by B3L7. We did not write this game — it is the subject under test for Playtest Swarm. The swarm drives the game's own unmodified player, enemy, and physics logic.
+A top-down dungeon crawler by B3L7. We did not write this game — it is the subject under test for PlayerPlayer. The swarm drives the game's own unmodified player, enemy, and physics logic.
 
 ## Subset vendored
 

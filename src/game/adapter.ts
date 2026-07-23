@@ -3,7 +3,7 @@ import { runBot, type RunOptions, type RunResult } from "./harness";
 // The engine seam.
 //
 // Everything DOWNSTREAM of a HeadlessAdapter is engine-agnostic and ships in the
-// `playtest-copilot` SDK: the telemetry shape (TelemetryEvent), the ClickHouse
+// `@playerplayer/sdk` SDK: the telemetry shape (TelemetryEvent), the ClickHouse
 // firehose + materialized views, the chat cards, and the before/after delta
 // heatmap. The adapter is the ONE engine-specific piece of the bot swarm — it
 // drives a real headless playthrough and emits telemetry in the shared shape.

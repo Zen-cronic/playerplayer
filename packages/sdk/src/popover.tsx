@@ -51,7 +51,7 @@ export function CopilotPopover({
         <span className="ps-popover-title">
           <span className="ps-popover-symbol" aria-hidden="true">✦</span>
           <span>
-            <strong>Playtest Swarm</strong>
+            <strong>PlayerPlayer</strong>
             <small>Level analyst · connected</small>
           </span>
         </span>

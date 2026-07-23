@@ -10,7 +10,7 @@ import {
 } from "../../../lib/queries";
 import { experimentAgentTrail, promptForTurn, type LineageStep } from "../../../lib/agent-queries";
 import { runsSpan } from "../../../lib/ops-queries";
-import { HeatmapCard, DeltaCard, FunnelCard } from "playtest-copilot";
+import { HeatmapCard, DeltaCard, FunnelCard } from "@playerplayer/sdk";
 import { AppShell } from "../../../components/app-shell";
 
 export const dynamic = "force-dynamic";

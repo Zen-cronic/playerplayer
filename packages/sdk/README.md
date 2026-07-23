@@ -1,4 +1,4 @@
-# playtest-copilot
+# @playerplayer/sdk
 
 An in-game chat copilot for level designers. Ask *"where do runs die?"* and it
 renders a death **heatmap** over your level; ask *"what if I move this enemy?"*
@@ -21,12 +21,12 @@ it makes no claim to swarm any game out of the box.
 ## Install
 
 ```bash
-npm install playtest-copilot
+npm install @playerplayer/sdk
 ```
 
 ```tsx
-import { CopilotPopover } from "playtest-copilot";
-import "playtest-copilot/styles.css"; // compiled utilities — no Tailwind required
+import { CopilotPopover } from "@playerplayer/sdk";
+import "@playerplayer/sdk/styles.css"; // compiled utilities — no Tailwind required
 
 export function Game() {
   return (

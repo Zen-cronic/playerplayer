@@ -1,5 +1,5 @@
 {
-  "name": "playtest-swarm",
+  "name": "playerplayer",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.30.0",
@@ -15,7 +15,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build:sdk": "pnpm --filter playtest-copilot build",
+    "build:sdk": "pnpm --filter @playerplayer/sdk build",
     "predev": "node scripts/sync-game-assets.mjs && pnpm run build:sdk",
     "dev": "next dev",
     "dev:trigger": "trigger dev",
@@ -40,7 +40,7 @@
     "ai": "^6.0.230",
     "next": "16.1.1",
     "phaser": "3.55.2",
-    "playtest-copilot": "workspace:*",
+    "@playerplayer/sdk": "workspace:*",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "zod": "^4.0.0"

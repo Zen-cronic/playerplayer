@@ -1,6 +1,6 @@
 "use client";
 
-import { LevelCanvas, type CanvasTrail } from "playtest-copilot";
+import { LevelCanvas, type CanvasTrail } from "@playerplayer/sdk";
 
 // Client wrapper by necessity, not preference: LevelCanvas takes cellColors as
 // a Map, which is not RSC-serializable — the (empty) Map must be constructed on
