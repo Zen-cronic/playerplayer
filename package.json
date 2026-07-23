@@ -24,6 +24,7 @@
     "start": "next start",
     "bot": "tsx src/game/run-headless.ts",
     "arena:check": "tsx scripts/arena-check.ts",
+    "arena:bench": "tsx scripts/arena-bench.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "migrate": "tsx scripts/migrate.ts up",
     "migrate:status": "tsx scripts/migrate.ts status",
