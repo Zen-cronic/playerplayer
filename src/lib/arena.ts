@@ -442,6 +442,31 @@ export async function getGeometry(matchId: string): Promise<Cell[]> {
   return rows.map((r) => ({ x: Number(r.cell_x), y: Number(r.cell_y), kind: r.kind }));
 }
 
+// Match metadata for a client joining an existing match: dimensions + the human
+// player ids it may control.
+export async function getMatchInfo(
+  matchId: string,
+): Promise<{ exists: boolean; width: number; height: number; humanIds: number[] }> {
+  const ch = getClickHouse();
+  const [dimsRs, humansRs] = await Promise.all([
+    ch.query({
+      query: `SELECT count() AS c, any(width) AS w, any(height) AS h FROM matches WHERE match_id = {matchId:String}`,
+      query_params: { matchId },
+      format: "JSONEachRow",
+      clickhouse_settings: READ_SETTINGS,
+    }),
+    ch.query({
+      query: `SELECT player_id FROM match_players WHERE match_id = {matchId:String} AND kind = 'human' ORDER BY player_id`,
+      query_params: { matchId },
+      format: "JSONEachRow",
+      clickhouse_settings: READ_SETTINGS,
+    }),
+  ]);
+  const [{ c, w, h }] = await dimsRs.json<{ c: string; w: string; h: string }>();
+  const humans = await humansRs.json<{ player_id: string }>();
+  return { exists: Number(c) > 0, width: Number(w), height: Number(h), humanIds: humans.map((r) => Number(r.player_id)) };
+}
+
 export async function latestTick(matchId: string): Promise<number> {
   const ch = getClickHouse();
   const rs = await ch.query({

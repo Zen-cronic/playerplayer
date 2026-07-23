@@ -52,25 +52,33 @@ export default function ArenaPage() {
   const [blob, setBlob] = useState<{ text: string; source: string } | null>(null);
   const matchIdRef = useRef<string | null>(null);
 
+  // Boot either starts a new match or, with ?match=<id>&as=<playerId>, joins an
+  // existing one and controls that player — that's what makes two browsers a real
+  // shared multiplayer match.
   const start = useCallback(async () => {
     setStarting(true);
     setError(null);
     setAuto(false);
+    setBlob(null);
     try {
       const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
-      const humans = Math.max(0, Math.min(4, Number(params.get("humans") ?? 1)));
-      const bots = Math.max(0, Math.min(8, Number(params.get("bots") ?? 3)));
-      const started = await postJson<{ matchId: string; width: number; height: number; cells: Cell[]; humanIds: number[] }>(
-        "/api/arena/start",
-        { humans, bots, maxTicks: 120 },
-      );
-      setMatchId(started.matchId);
-      matchIdRef.current = started.matchId;
-      setDims({ width: started.width, height: started.height });
-      setCells(started.cells);
-      setHumanId(started.humanIds[0] ?? null);
-      const first = await postJson<View>("/api/arena/state", { matchId: started.matchId });
-      setView(first);
+      const joinId = params.get("match");
+      let m: { matchId: string; width: number; height: number; cells: Cell[]; humanIds: number[] };
+      if (joinId) {
+        m = await postJson("/api/arena/match", { matchId: joinId });
+        const as = Number(params.get("as") ?? m.humanIds[0] ?? 1);
+        setHumanId(m.humanIds.includes(as) ? as : (m.humanIds[0] ?? null));
+      } else {
+        const humans = Math.max(0, Math.min(4, Number(params.get("humans") ?? 1)));
+        const bots = Math.max(0, Math.min(8, Number(params.get("bots") ?? 3)));
+        m = await postJson("/api/arena/start", { humans, bots, maxTicks: 120 });
+        setHumanId(m.humanIds[0] ?? null);
+      }
+      setMatchId(m.matchId);
+      matchIdRef.current = m.matchId;
+      setDims({ width: m.width, height: m.height });
+      setCells(m.cells);
+      setView(await postJson<View>("/api/arena/state", { matchId: m.matchId }));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -131,6 +139,20 @@ export default function ArenaPage() {
     const h = setInterval(() => void step(), 500);
     return () => clearInterval(h);
   }, [auto, step]);
+
+  // Sync poll: every client re-reads the shared frontier, so a second browser sees
+  // whoever advanced the world (a stepping client here, or the Trigger loop in prod).
+  useEffect(() => {
+    if (!matchId) return;
+    const h = setInterval(async () => {
+      try {
+        setView(await postJson<View>("/api/arena/state", { matchId }));
+      } catch {
+        // transient; the next tick retries
+      }
+    }, 700);
+    return () => clearInterval(h);
+  }, [matchId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

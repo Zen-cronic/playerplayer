@@ -82,6 +82,47 @@ test.describe("arena: CH-authoritative multiplayer", () => {
     expect(errors.pageErrors, "page crashed").toEqual([]);
     await attachErrorReport(info, errors);
   });
+
+  test("two browsers share one match — real human-vs-human multiplayer", async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const p1 = await ctx1.newPage();
+    const p2 = await ctx2.newPage();
+
+    // p1 starts a 2-human, 0-bot match (deterministic) and controls player 1.
+    await p1.goto("/arena?humans=2&bots=0");
+    await expect(p1.getByTestId("arena-player-1-cell")).toHaveText("1,1");
+    await expect(p1.getByTestId("arena-player-2")).toBeVisible();
+    const matchId = (await p1.getByTestId("arena-match-id").innerText()).replace(/^match:\s*/, "").trim();
+
+    // p2 joins the SAME match as player 2.
+    await p2.goto(`/arena?match=${encodeURIComponent(matchId)}&as=2`);
+    await expect(p2.getByTestId("arena-player-2-cell")).toHaveText("14,1");
+
+    // Each browser submits its own player's intent, then p1 advances the shared world.
+    const inputOn = (pg: Page) =>
+      pg.waitForResponse((r) => r.url().includes("/api/arena/input") && r.request().method() === "POST");
+    const i2 = inputOn(p2);
+    await p2.keyboard.press("ArrowLeft"); // player 2 moves left
+    await i2;
+    const i1 = inputOn(p1);
+    await p1.keyboard.press("ArrowDown"); // player 1 moves down
+    await i1;
+    const stepped = p1.waitForResponse((r) => r.url().includes("/api/arena/step"));
+    await p1.getByTestId("arena-step").click();
+    await stepped;
+
+    // p1 sees both players resolved by ClickHouse; p2 sees it too via its sync poll.
+    await expect(p1.getByTestId("arena-player-1-cell")).toHaveText("1,2");
+    await expect(p1.getByTestId("arena-player-2-cell")).toHaveText("13,1");
+    await expect(p2.getByTestId("arena-player-2-cell")).toHaveText("13,1");
+    await expect(p2.getByTestId("arena-player-1-cell")).toHaveText("1,2");
+
+    await assertNoHost(p1);
+    await assertNoHost(p2);
+    await ctx1.close();
+    await ctx2.close();
+  });
 });
 
 test.describe("api: /api/arena/* is a strict, same-origin write surface", () => {
