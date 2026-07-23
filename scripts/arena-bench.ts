@@ -1,6 +1,6 @@
 import { getClickHouse } from "../src/lib/clickhouse";
 import { loadDotEnv } from "../src/lib/env";
-import { createMatch, stepBots, resolveTick, emitTickTelemetry, matchStatus, type PlayerSeed } from "../src/lib/arena";
+import { createMatch, stepBots, resolveTick, emitTickTelemetry, matchStatus, loadStepContext, type PlayerSeed } from "../src/lib/arena";
 import { geometryFromTiledLevel, assignSpawns } from "../src/lib/arena-geometry";
 import { BOT_ARCHETYPES } from "../src/lib/arena-bot";
 
@@ -46,11 +46,12 @@ async function main(): Promise<void> {
   const resolveMs: number[] = [];
   const stepBotsMs: number[] = [];
   const teleMs: number[] = [];
+  const ctx = await loadStepContext(matchId); // cached once, as the durable loop does
   const wallStart = performance.now();
 
   for (let tick = 1; tick <= TICKS; tick++) {
     const t0 = performance.now();
-    await stepBots(matchId, tick - 1);
+    await stepBots(matchId, tick - 1, ctx);
     const t1 = performance.now();
     await resolveTick(matchId, tick);
     const t2 = performance.now();

@@ -1,7 +1,7 @@
 import { metadata, schemaTask, wait } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { arenaQueue } from "./queues";
-import { advanceMatch, matchStatus } from "../lib/arena";
+import { advanceMatch, matchStatus, loadStepContext } from "../lib/arena";
 
 // The authoritative game clock. A durable per-match task that advances the match
 // one tick at a time: it lets bots submit intents, asks ClickHouse to resolve the
@@ -28,6 +28,9 @@ export const matchLoop = schemaTask({
     metadata.set("matchId", matchId).set("tick", 0).set("status", "running");
     let finalTick = 0;
 
+    // Static per-match data (geometry + bot roster) — load once, reuse every tick.
+    const ctx = await loadStepContext(matchId);
+
     // At most maxTicks iterations; the match also ends when matchStatus reports over
     // (clock hit max_ticks, or last player standing in a multiplayer match).
     for (let i = 0; i < maxTicks; i++) {
@@ -38,7 +41,7 @@ export const matchLoop = schemaTask({
         break;
       }
       await wait.for({ seconds: tickSeconds });
-      await advanceMatch(matchId);
+      await advanceMatch(matchId, ctx);
       const after = await matchStatus(matchId);
       finalTick = after.tick;
       metadata.set("tick", after.tick).set("alive", after.alive);

@@ -272,30 +272,55 @@ export async function isTickResolved(matchId: string, tick: number): Promise<boo
   return Number(n) > 0;
 }
 
-// Compute and submit each alive bot's intent for `tick` from the world at `tick`.
-// Bots are re-seeded per (seed, player, tick) so the durable loop recomputes the
-// identical intent on a retry. Returns how many bot intents were submitted.
-export async function stepBots(matchId: string, tick: number): Promise<number> {
-  const ch = getClickHouse();
+// Static geometry a match's bots need, loaded once. The durable loop loads this
+// before its tick loop and passes it to every stepBots call, so the ~1900-cell
+// geometry scan and walkable-set build happen once per match, not once per tick.
+export interface ArenaWorldGeometry {
+  width: number;
+  height: number;
+  walkable: Set<string>;
+  hazards: Set<string>;
+}
 
-  const botsRs = await ch.query({
+export interface BotRow {
+  player_id: string;
+  archetype: string;
+  seed: string;
+}
+
+// Static per-match data the loop loads once and reuses every tick: geometry + the
+// bot roster. Reduces the loop's per-tick HTTP round-trips (the dominant client-side
+// cost — the DB resolution itself is fast) from ~4 to ~2.
+export interface StepContext {
+  geometry: ArenaWorldGeometry;
+  bots: BotRow[];
+}
+
+export async function loadBots(matchId: string): Promise<BotRow[]> {
+  const ch = getClickHouse();
+  const rs = await ch.query({
     query: `SELECT player_id, archetype, seed FROM match_players WHERE match_id = {matchId:String} AND kind = 'bot'`,
     query_params: { matchId },
     format: "JSONEachRow",
     clickhouse_settings: READ_SETTINGS,
   });
-  const bots = await botsRs.json<{ player_id: string; archetype: string; seed: string }>();
-  if (bots.length === 0) return 0;
+  return rs.json<BotRow>();
+}
 
-  const [state, geoRs, coins, dims] = await Promise.all([
-    getState(matchId, tick),
+export async function loadStepContext(matchId: string): Promise<StepContext> {
+  const [geometry, bots] = await Promise.all([loadArenaGeometry(matchId), loadBots(matchId)]);
+  return { geometry, bots };
+}
+
+export async function loadArenaGeometry(matchId: string): Promise<ArenaWorldGeometry> {
+  const ch = getClickHouse();
+  const [geoRs, dims] = await Promise.all([
     ch.query({
       query: `SELECT cell_x, cell_y, kind FROM match_geometry WHERE match_id = {matchId:String} AND kind IN ('wall','hazard')`,
       query_params: { matchId },
       format: "JSONEachRow",
       clickhouse_settings: READ_SETTINGS,
     }),
-    coinsRemaining(matchId, tick),
     ch.query({
       query: `SELECT any(width) AS w, any(height) AS h FROM matches WHERE match_id = {matchId:String}`,
       query_params: { matchId },
@@ -303,7 +328,6 @@ export async function stepBots(matchId: string, tick: number): Promise<number> {
       clickhouse_settings: READ_SETTINGS,
     }),
   ]);
-
   const geo = await geoRs.json<{ cell_x: string; cell_y: string; kind: string }>();
   const [{ w, h }] = await dims.json<{ w: string; h: string }>();
   const width = Number(w);
@@ -317,6 +341,22 @@ export async function stepBots(matchId: string, tick: number): Promise<number> {
       if (!walls.has(k)) walkable.add(k);
     }
   }
+  return { width, height, walkable, hazards };
+}
+
+// Compute and submit each alive bot's intent for `tick` from the world at `tick`.
+// Bots are re-seeded per (seed, player, tick) so the durable loop recomputes the
+// identical intent on a retry. Pass `ctx` (from loadStepContext) to reuse the static
+// geometry + bot roster across ticks. Returns how many bot intents were submitted.
+export async function stepBots(matchId: string, tick: number, ctx?: StepContext): Promise<number> {
+  const ch = getClickHouse();
+
+  const bots = ctx?.bots ?? (await loadBots(matchId));
+  if (bots.length === 0) return 0;
+
+  const geometry = ctx?.geometry ?? (await loadArenaGeometry(matchId));
+  const { width, height, walkable, hazards } = geometry;
+  const [state, coins] = await Promise.all([getState(matchId, tick), coinsRemaining(matchId, tick)]);
 
   const alive = state.filter((s) => s.alive);
   const aliveById = new Map(alive.map((p) => [p.playerId, p]));
@@ -342,12 +382,12 @@ export async function stepBots(matchId: string, tick: number): Promise<number> {
   }
 
   if (values.length > 0) {
-    await ch.insert({
-      table: "match_inputs",
-      values,
-      format: "JSONEachRow",
-      clickhouse_settings: WRITE_SETTINGS,
-    });
+    // Durable insert (wait for flush): the loop reads these intents back at
+    // resolveTick(tick+1), so they must be visible before the resolution runs.
+    // Fire-and-forget here breaks determinism (a not-yet-flushed intent reads as
+    // 'stay'). This read-after-write is the honest cost of keeping the authoritative
+    // intents in the DB; it is ~60ms and comfortably within a 500ms tick.
+    await ch.insert({ table: "match_inputs", values, format: "JSONEachRow", clickhouse_settings: WRITE_SETTINGS });
   }
   return values.length;
 }
@@ -431,11 +471,14 @@ export async function nextSeq(matchId: string, tick: number, playerId: number): 
 // Advance the match one tick: bots act, ClickHouse resolves, telemetry emits. This
 // is exactly the per-tick body of the durable match-loop, also exposed to the
 // same-origin /step route for local play and deterministic (sleep-free) e2e.
-export async function advanceMatch(matchId: string): Promise<{ tick: number; advanced: boolean }> {
+export async function advanceMatch(
+  matchId: string,
+  ctx?: StepContext,
+): Promise<{ tick: number; advanced: boolean }> {
   const frontier = await latestTick(matchId);
   const status = await matchStatus(matchId);
   if (status.over) return { tick: frontier, advanced: false };
-  await stepBots(matchId, frontier);
+  await stepBots(matchId, frontier, ctx);
   const wrote = await resolveTick(matchId, frontier + 1);
   if (wrote) await emitTickTelemetry(matchId, frontier + 1);
   return { tick: frontier + 1, advanced: wrote };
