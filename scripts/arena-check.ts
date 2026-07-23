@@ -4,6 +4,7 @@ import {
   createMatch,
   submitIntent,
   resolveTick,
+  emitTickTelemetry,
   getState,
   coinsRemaining,
   matchStatus,
@@ -177,6 +178,49 @@ async function tiledReuse(): Promise<void> {
   assert(g.spawns.length > 0, `level1 has spawns (${g.spawns.length})`);
 }
 
+// Analytics reuse bridge: arena events flow into the existing game_events envelope
+// and the existing heatmap MV aggregates them by cell (cell*16 -> floor(x/16)).
+async function telemetryBridge(matchId: string): Promise<void> {
+  const arena = parseAsciiArena(["......", "#..C..", ".....H"]);
+  await createMatch(
+    { matchId, room: "spike", width: arena.width, height: arena.height, maxTicks: 8, tickMs: 200 },
+    arena.cells,
+    [
+      { playerId: 1, kind: "human", x: 1, y: 1 },
+      { playerId: 5, kind: "bot", archetype: "rusher", x: 3, y: 0 },
+      { playerId: 6, kind: "bot", archetype: "explorer", x: 5, y: 1 },
+    ],
+  );
+  await submitIntent(matchId, 0, 1, "right");
+  await submitIntent(matchId, 0, 5, "down");
+  await submitIntent(matchId, 0, 6, "down");
+  await resolveTick(matchId, 1);
+  await emitTickTelemetry(matchId, 1);
+
+  const ch = getClickHouse();
+  const evs = await ch.query({
+    query: `SELECT archetype, type, toInt32(x) AS x, toInt32(y) AS y, toUInt16(props.coins) AS coins
+            FROM game_events WHERE game_id = 'arena-grid' AND experiment_id = {m:String} ORDER BY archetype`,
+    query_params: { m: matchId },
+    format: "JSONEachRow",
+  });
+  const rows = await evs.json<{ archetype: string; type: string; x: string; y: string; coins: string }>();
+  const byArch = Object.fromEntries(rows.map((r) => [r.archetype, r]));
+  assert(byArch["human"]?.type === "pos" && Number(byArch["human"].x) === 32, "human -> pos event at cell*16 (x=32)");
+  assert(byArch["rusher"]?.type === "pickup_coin" && Number(byArch["rusher"].coins) === 1, "rusher -> pickup_coin, coins=1");
+  assert(byArch["explorer"]?.type === "death", "explorer -> death event");
+
+  const hm = await ch.query({
+    query: `SELECT type, gx, gy, sum(n) AS n FROM game_heatmap
+            WHERE game_id = 'arena-grid' AND experiment_id = {m:String} GROUP BY type, gx, gy`,
+    query_params: { m: matchId },
+    format: "JSONEachRow",
+  });
+  const hrows = await hm.json<{ type: string; gx: string; gy: string; n: string }>();
+  const death = hrows.find((r) => r.type === "death");
+  assert(!!death && Number(death.gx) === 5 && Number(death.gy) === 2, "heatmap MV recovered death cell (5,2) from cell*16");
+}
+
 async function main(): Promise<void> {
   console.log(`arena:check against ${URL} (run ${RUN})`);
   console.log("scenario: spike rules");
@@ -185,6 +229,8 @@ async function main(): Promise<void> {
   await determinism();
   console.log("scenario: corridor walk + match-over");
   await corridorWalk(`${RUN}-corridor`);
+  console.log("scenario: analytics reuse bridge (game_events + heatmap MV)");
+  await telemetryBridge(`${RUN}-tele`);
   console.log("scenario: real Tiled level reuse");
   await tiledReuse();
 

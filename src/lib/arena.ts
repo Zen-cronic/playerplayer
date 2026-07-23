@@ -1,5 +1,6 @@
 import { getClickHouse, READ_SETTINGS } from "./clickhouse";
 import { ensureMigrations } from "./migrations";
+import { ARENA_GAME_ID, ARENA_TILE } from "./tables";
 
 // ClickHouse Arena: the authoritative engine of a live multiplayer grid game.
 // State(N+1) is a pure SQL function of state(N) + inputs(N) + geometry, computed
@@ -303,6 +304,46 @@ export async function coinsRemaining(matchId: string, tick: number): Promise<Cel
   });
   const rows = await rs.json<{ cell_x: string; cell_y: string }>();
   return rows.map((r) => ({ x: Number(r.cell_x), y: Number(r.cell_y), kind: "coin" as const }));
+}
+
+// Analytics reuse bridge: project one salient event per player per tick into the
+// existing game_events envelope (game_id='arena-grid', experiment_id=matchId), so
+// the existing game_heatmap_mv, heatmapDelta, and chat.agent() copilot light up
+// over live multiplayer matches with no new analytics code. Cell coords are emitted
+// at cell*ARENA_TILE so the heatmap MV's floor(x/16) recovers the exact cell. One
+// deterministic INSERT...SELECT — the MV fires as a side effect.
+export async function emitTickTelemetry(matchId: string, tick: number): Promise<void> {
+  if (tick < 1) return;
+  const ch = getClickHouse();
+  await ch.command({
+    query: `
+      INSERT INTO game_events (game_id, experiment_id, variant, run_id, archetype, t, type, x, y, room, props)
+      WITH
+        cur AS (SELECT player_id, x, y, score, alive FROM match_state WHERE match_id = {matchId:String} AND tick = {tick:UInt32}),
+        prev AS (SELECT player_id, score, alive FROM match_state WHERE match_id = {matchId:String} AND tick = {tick:UInt32} - 1),
+        pl AS (SELECT player_id, kind, archetype FROM match_players WHERE match_id = {matchId:String})
+      SELECT
+        {gameId:String} AS game_id,
+        {matchId:String} AS experiment_id,
+        'live' AS variant,
+        {matchId:String} AS run_id,
+        if(pl.archetype != '', pl.archetype, toString(pl.kind)) AS archetype,
+        {tick:UInt32} AS t,
+        multiIf(cur.alive = 0 AND prev.alive = 1, 'death',
+                cur.score > prev.score, 'pickup_coin',
+                'pos') AS type,
+        toFloat32(cur.x * {tile:UInt16}) AS x,
+        toFloat32(cur.y * {tile:UInt16}) AS y,
+        (SELECT any(room) FROM matches WHERE match_id = {matchId:String}) AS room,
+        map('health', toInt8(cur.alive * 100), 'coins', toUInt16(cur.score)) AS props
+      FROM cur
+      LEFT JOIN prev USING (player_id)
+      LEFT JOIN pl USING (player_id)
+      WHERE NOT (cur.alive = 0 AND prev.alive = 0)
+      SETTINGS join_use_nulls = 0
+    `,
+    query_params: { matchId, tick, tile: ARENA_TILE, gameId: ARENA_GAME_ID },
+  });
 }
 
 export interface MatchStatus {
