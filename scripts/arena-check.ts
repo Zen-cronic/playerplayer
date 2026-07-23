@@ -412,6 +412,49 @@ async function loopIdempotency(matchId: string): Promise<void> {
   assert(teleA === teleB, "loop retry re-emits no telemetry (idempotent)");
 }
 
+// Durable-resume proof for the Trigger match-loop: a match interrupted mid-way and
+// then resumed from scratch (as run() re-entering after a crash would) reaches the
+// IDENTICAL final state as an uninterrupted run. The loop is frontier-based, so
+// "resume" is just re-running the advance loop — it continues from the frontier and
+// never re-resolves or re-emits a past tick.
+async function createKrArena(matchId: string): Promise<void> {
+  const arena = parseAsciiArena(ARENA_PRESETS.demo);
+  const starts = assignSpawns(arena, 3);
+  const players = starts.map((s, i) => ({
+    playerId: i + 1,
+    kind: "bot" as const,
+    archetype: BOT_ARCHETYPES[i % BOT_ARCHETYPES.length],
+    seed: `kr:${i + 1}`, // matchId-independent so two runs are directly comparable
+    x: s.x,
+    y: s.y,
+  }));
+  await createMatch({ matchId, room: "demo", width: arena.width, height: arena.height, maxTicks: 12, tickMs: 0 }, arena.cells, players);
+}
+async function loopToEnd(matchId: string, maxAdvances: number): Promise<number> {
+  for (let i = 0; i < maxAdvances; i++) {
+    const s = await matchStatus(matchId);
+    if (s.over) break;
+    await advanceMatch(matchId);
+  }
+  return (await matchStatus(matchId)).tick;
+}
+async function killAndResume(): Promise<void> {
+  const a = `${RUN}-krA`;
+  await createKrArena(a);
+  const finalA = await loopToEnd(a, 20);
+  const digA = await digest(a, finalA);
+
+  const b = `${RUN}-krB`;
+  await createKrArena(b);
+  const midTick = await loopToEnd(b, 5); // interrupt after 5 ticks
+  const finalB = await loopToEnd(b, 20); // "crash-restart": resume the loop from the frontier
+  const digB = await digest(b, finalB);
+
+  assert(midTick > 0 && midTick < finalA, `interrupted run stopped mid-match (tick ${midTick} of ${finalA})`);
+  assert(finalA === finalB, `resumed run reaches the same final tick (${finalA})`);
+  assert(digA === digB, `crash-resume reaches the identical final state (digest ${digA})`);
+}
+
 async function main(): Promise<void> {
   console.log(`arena:check against ${URL} (run ${RUN})`);
   console.log("scenario: spike rules");
@@ -432,6 +475,8 @@ async function main(): Promise<void> {
   await fullMatchDeterminism();
   console.log("scenario: loop-level idempotency (crash-restart is a no-op)");
   await loopIdempotency(`${RUN}-idem`);
+  console.log("scenario: durable resume (interrupt mid-match, resume, identical final state)");
+  await killAndResume();
   console.log("scenario: analytics reuse bridge (game_events + heatmap MV)");
   await telemetryBridge(`${RUN}-tele`);
   console.log("scenario: real Tiled level reuse");
