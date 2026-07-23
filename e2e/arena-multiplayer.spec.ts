@@ -69,6 +69,15 @@ test.describe("arena: CH-authoritative multiplayer", () => {
     await stepDone;
     await expect(page.getByTestId("arena-status")).toContainText("tick 1");
 
+    // ClickHouse-as-web-server: the snapshot is served by CH via FORMAT RawBLOB and
+    // proxied same-origin. The host never appears; the proxy reports its source.
+    const blobResp = page.waitForResponse((r) => r.url().includes("/api/arena/state-blob"));
+    await page.getByTestId("arena-blob-btn").click();
+    const resp = await blobResp;
+    expect(resp.headers()["x-arena-source"]).toMatch(/^clickhouse-rawblob/);
+    await expect(page.getByTestId("arena-blob")).toContainText("playerId");
+    await expect(page.getByTestId("arena-blob-source")).toContainText("clickhouse-rawblob");
+
     await assertNoHost(page);
     expect(errors.pageErrors, "page crashed").toEqual([]);
     await attachErrorReport(info, errors);
@@ -105,5 +114,10 @@ test.describe("api: /api/arena/* is a strict, same-origin write surface", () => 
       data: { matchId: "arena-x", playerId: 1, intent: "teleport" },
     });
     expect(res.status()).toBe(400);
+  });
+
+  test("state-blob proxy rejects a missing Origin with 403", async ({ request, baseURL }) => {
+    const res = await request.post(`${baseURL}/api/arena/state-blob`, { data: MATCH });
+    expect(res.status()).toBe(403);
   });
 });

@@ -49,6 +49,7 @@ export default function ArenaPage() {
   const [auto, setAuto] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
+  const [blob, setBlob] = useState<{ text: string; source: string } | null>(null);
   const matchIdRef = useRef<string | null>(null);
 
   const start = useCallback(async () => {
@@ -109,6 +110,22 @@ export default function ArenaPage() {
     [humanId],
   );
 
+  const loadBlob = useCallback(async () => {
+    const id = matchIdRef.current;
+    if (!id) return;
+    try {
+      const res = await fetch("/api/arena/state-blob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ matchId: id }),
+      });
+      if (!res.ok) throw new Error(`state-blob ${res.status}`);
+      setBlob({ text: await res.text(), source: res.headers.get("x-arena-source") ?? "unknown" });
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
   useEffect(() => {
     if (!auto) return;
     const h = setInterval(() => void step(), 500);
@@ -142,6 +159,7 @@ export default function ArenaPage() {
         <button onClick={() => void step()} data-testid="arena-step" style={btn}>Step</button>
         <button onClick={() => setAuto((a) => !a)} data-testid="arena-auto" style={btn}>{auto ? "Pause" : "Auto"}</button>
         <button onClick={() => void start()} data-testid="arena-new" style={btn} disabled={starting}>New match</button>
+        <button onClick={() => void loadBlob()} data-testid="arena-blob-btn" style={btn}>RawBLOB snapshot</button>
         <span data-testid="arena-status" style={{ marginLeft: 8, color: "#cbd5e1" }}>
           {view ? `tick ${view.tick} • alive ${view.alive}/${view.total}${view.over ? " • OVER" : ""}` : "…"}
         </span>
@@ -155,6 +173,15 @@ export default function ArenaPage() {
       </div>
 
       {error && <div data-testid="arena-error" style={{ color: "#fca5a5", marginBottom: 12 }}>{error}</div>}
+
+      {blob && (
+        <div data-testid="arena-blob" style={{ marginBottom: 12, fontSize: 12 }}>
+          <div style={{ color: "#7dd3fc" }}>
+            served by ClickHouse (FORMAT RawBLOB) · source: <span data-testid="arena-blob-source">{blob.source}</span> · proxied same-origin
+          </div>
+          <pre style={{ background: "#0b1220", padding: 8, borderRadius: 6, overflowX: "auto", maxWidth: 640, color: "#cbd5e1" }}>{blob.text}</pre>
+        </div>
+      )}
 
       {dims.width > 0 && (
         <div
