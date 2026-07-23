@@ -3,8 +3,8 @@ import { getClickHouse, READ_SETTINGS } from "./clickhouse";
 // ClickHouse-as-web-server: a match-state snapshot served as JSON bytes straight
 // from ClickHouse via FORMAT RawBLOB. The preferred path uses a dedicated read-only
 // user (arena_reader) over HTTP whose SETTINGS PROFILE bakes the Content-Type header
-// (a readonly user cannot set http_response_headers per-query — the profile is the
-// settings-profile workaround). The CH host lives only in server-side env; the browser
+// (a readonly user cannot set http_response_headers per-query, so the header is baked
+// into the profile instead). The CH host lives only in server-side env; the browser
 // reaches this only through the same-origin /api/arena/state-blob proxy.
 
 export const SNAPSHOT_SQL = `
