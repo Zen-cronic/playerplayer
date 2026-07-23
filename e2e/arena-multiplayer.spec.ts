@@ -169,4 +169,37 @@ test.describe("api: /api/arena/* is a strict, same-origin write surface", () => 
     const res = await request.post(`${baseURL}/api/arena/state-blob`, { data: MATCH });
     expect(res.status()).toBe(403);
   });
+
+  test("frame proxy rejects a missing Origin with 403", async ({ request, baseURL }) => {
+    const res = await request.post(`${baseURL}/api/arena/frame`, { data: MATCH });
+    expect(res.status()).toBe(403);
+  });
+
+  test("ClickHouse renders the live match frame as SVG (served via RawBLOB)", async ({ request, baseURL }) => {
+    // Seed a real match, then ask ClickHouse to draw it.
+    const start = await request.post(`${baseURL}/api/arena/start`, {
+      headers: { origin: baseURL! },
+      data: { humans: 1, bots: 3, maxTicks: 30 },
+    });
+    expect(start.ok()).toBeTruthy();
+    const { matchId, humanIds } = await start.json();
+
+    const frame = await request.post(`${baseURL}/api/arena/frame`, {
+      headers: { origin: baseURL! },
+      data: { matchId, humanId: humanIds[0] ?? -1 },
+    });
+    expect(frame.ok()).toBeTruthy();
+    expect(frame.headers()["content-type"]).toContain("image/svg+xml");
+    expect(frame.headers()["x-arena-source"]).toMatch(/^clickhouse-rawblob/);
+
+    const svg = await frame.text();
+    expect(svg.startsWith("<svg")).toBeTruthy();
+    expect(svg.trimEnd().endsWith("</svg>")).toBeTruthy();
+    // One <text> label per player — ClickHouse drew a marker for each of the 4 players.
+    expect((svg.match(/<text /g) ?? []).length).toBe(4);
+    // The bytes ClickHouse produced carry no host or credentials.
+    expect(svg.toLowerCase()).not.toContain("clickhouse.cloud");
+    expect(svg).not.toContain(":8443");
+    expect(svg, "credentials in a URL leaked").not.toMatch(/https?:\/\/[^\s"'<>]*:[^\s"'<>]*@/);
+  });
 });
