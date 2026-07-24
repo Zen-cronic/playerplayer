@@ -138,6 +138,11 @@ database is doing real work, not decorating a toy table.
 
 ## Arena — ClickHouse as the game engine
 
+> **Judge shortcut:** click the highlighted **`04 Arena · Live`** tab in the
+> landing-page header (or open **`/arena`** directly) to start a playable match
+> against three bots. The live board is backed by ClickHouse-authoritative state;
+> every move is resolved in SQL.
+
 A second, self-contained exhibit at **`/arena`**, sharing no code with the
 copilot: a live multiplayer grid game whose authoritative state ClickHouse
 doesn't just *store* but **computes**.

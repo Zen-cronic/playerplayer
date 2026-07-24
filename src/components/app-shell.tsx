@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export type DemoRoute = "game" | "chat" | "analytics";
+export type DemoRoute = "game" | "chat" | "analytics" | "arena";
 
 export function SwarmMark({ className = "" }: { className?: string }) {
   return (
@@ -19,10 +19,17 @@ export function SwarmMark({ className = "" }: { className?: string }) {
   );
 }
 
-const routes: Array<{ id: DemoRoute; href: string; label: string; index: string }> = [
+const routes: Array<{
+  id: DemoRoute;
+  href: string;
+  label: string;
+  index: string;
+  featured?: boolean;
+}> = [
   { id: "game", href: "/", label: "Play", index: "01" },
   { id: "chat", href: "/chat", label: "Ask", index: "02" },
   { id: "analytics", href: "/dashboard", label: "Analyze", index: "03" },
+  { id: "arena", href: "/arena", label: "Arena", index: "04", featured: true },
 ];
 
 export function AppHeader({ active }: { active: DemoRoute }) {
@@ -45,10 +52,13 @@ export function AppHeader({ active }: { active: DemoRoute }) {
               key={route.id}
               href={route.href}
               aria-current={active === route.id ? "page" : undefined}
-              className="demo-nav-link"
+              className={`demo-nav-link${route.featured ? " is-featured" : ""}`}
             >
               <span className="demo-nav-index">{route.index}</span>
               <span>{route.label}</span>
+              {route.featured && (
+                <span className="demo-nav-live" aria-hidden="true">Live</span>
+              )}
             </Link>
           ))}
         </nav>
