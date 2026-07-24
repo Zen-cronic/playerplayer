@@ -1,13 +1,55 @@
 # SCHEMA.md — the ClickHouse data model, as built
 
-This documents the **current** architecture and the reasoning behind every
-choice, following the official
-[schema design](https://clickhouse.com/docs/data-modeling/schema-design) and
-[data modeling](https://clickhouse.com/docs/data-modeling/overview) guidance.
-Where we deviate from a general rule, the deviation is stated with its reason.
-The schema is managed by a versioned migration chain (below) — it was evolved
+The **current** data model and the reasoning behind every choice, following the
+official [schema design](https://clickhouse.com/docs/data-modeling/schema-design)
+and [data modeling](https://clickhouse.com/docs/data-modeling/overview) guidance.
+Where we deviate from a general rule, the deviation is stated with its reason. A
+versioned migration chain (below) manages the schema; it was evolved
 **mid-hackathon** from a demo-game-shaped v1 to the game-agnostic v2 envelope,
 with the 684k-row backfill parity-checked before cutover.
+
+## The model at a glance
+
+Dotted edges are `creates` — each table hangs off the migration that introduced
+it, so the chain below doubles as the schema's history. `0001`'s v1 tables
+(`bot_events`, `bot_runs`, `heatmap_cells`) are frozen and read by nothing; they
+survive only so the backfill's parity checks stay re-runnable.
+
+```mermaid
+flowchart TB
+  subgraph mig ["forward-only migration chain · sha256-checksummed ledger (schema_migrations)"]
+    direction LR
+    m1["0001<br/>v1_baseline"] --> m2["0002<br/>envelope"] --> m3["0003 backfill_v1_to_v2<br/>684,857 rows · 6 parity checks"] --> m4["0004<br/>arena"]
+  end
+
+  subgraph v2 ["v2 envelope — the product's hot path"]
+    events[("game_events · MergeTree<br/>typed-JSON props<br/>ORDER BY (game_id, experiment_id,<br/>variant, run_id, t)")]
+    mv{{"game_heatmap_mv<br/>fires at insert time"}}
+    heat[("game_heatmap<br/>AggregatingMergeTree<br/>sumSimpleState")]
+    runs[("game_runs<br/>one row per playthrough")]
+    events --> mv --> heat
+  end
+
+  subgraph arena ["arena — ClickHouse as the game engine"]
+    geom[("match_geometry")] -- "walls / coins / hazards" --> state
+    inputs[("match_inputs")] -- "tick N intents" --> state
+    state[("match_state<br/>ReplacingMergeTree(inserted_at) · FINAL")]
+    state -- "INSERT…SELECT = tick N+1" --> state
+    matches[("matches")]
+    players[("match_players")]
+  end
+
+  subgraph ops ["agent + ops"]
+    direction LR
+    agent[("agent_events<br/>the agent's own telemetry · TTL 90d")]
+    reports[("watch_reports<br/>nightly canary verdicts · FINAL reads")]
+  end
+
+  m1 -.-> reports
+  m2 -.-> events
+  m2 -.-> agent
+  m4 -.-> state
+```
 
 ## Tables
 

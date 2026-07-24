@@ -121,15 +121,15 @@ share one schema.
 Honest boundary on the copilot (a claim/code gap worth stating exactly): the
 `chat.agent()` copilot's query tools (`heatmap`, `runCounts`, `heatmapDelta` in
 `src/lib/queries.ts`) all **default `gameId = DEMO_GAME_ID`** and filter on it, and
-`playtest-chat`'s `queryHeatmap` tool calls them without a gameId. So arena telemetry is
-present in the tables the copilot reads and is aggregated by the same MV, **but the
-copilot would not surface it until its tools are pointed at `game_id='arena-grid'`** — a
-small (one-parameter) plumbing change, *not* "no change." That change was deliberately
-**not** made here: `playtest-chat` is behind the inherited disqualifier gate and can only
-be verified with the live Trigger + AI stack, which this run doesn't touch. So the tested
-claim is narrow and true — arena events flow into the shared envelope and the existing MV
-rolls them up (`arena:check` bridge scenario; `getArenaHeatmap` + `/arena` overlay,
-e2e-asserted) — and the copilot integration is a scoped, operator-verified follow-up.
+`playtest-chat`'s `queryHeatmap` calls them without a gameId. So arena telemetry is
+present in the tables the copilot reads and aggregated by the same MV, **but the copilot
+won't surface it until its tools point at `game_id='arena-grid'`** — a one-parameter
+plumbing change, *not* "no change." That change was deliberately **not** made here:
+`playtest-chat` sits behind the inherited disqualifier gate and can only be verified with
+the live Trigger + AI stack, which this run doesn't touch. So the tested claim is narrow
+and true — arena events flow into the shared envelope and the existing MV rolls them up
+(`arena:check` bridge scenario; `getArenaHeatmap` + `/arena` overlay, e2e-asserted) — and
+the copilot integration is a scoped, operator-verified follow-up.
 
 ## Measured scale (local single-node, honest lower bound)
 
@@ -152,11 +152,11 @@ Per-tick breakdown (24 players): `resolveTick` 36 ms (the DB engine), `stepBots`
 caching geometry + the bot roster via `loadStepContext` barely moved it). The insert
 must be durable because the loop reads the intents back at `resolveTick(tick+1)`;
 fire-and-forget breaks determinism (a not-yet-flushed intent reads as `stay`). This
-read-after-write cost is inherent to keeping the authoritative intents in the DB —
-and it is comfortably within a 500 ms tick. A future optimization (not needed for
-real-time at this tick rate) is to compute bot intents in-process and inject them into
-the resolution, avoiding the per-tick durable round-trip. The DB *resolution* — the
-"database as engine" number — is the fast, flat, scalable part.
+read-after-write cost is inherent to keeping the authoritative intents in the DB, and
+sits comfortably within a 500 ms tick. A future optimization (not needed at this tick
+rate) computes bot intents in-process and injects them into the resolution, skipping the
+per-tick durable round-trip. The DB *resolution* — the "database as engine" number — is
+the fast, flat, scalable part.
 
 ## When the database-as-engine fits (and when it doesn't)
 

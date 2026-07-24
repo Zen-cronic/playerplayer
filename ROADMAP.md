@@ -36,15 +36,14 @@ no changes.
 
 Two arena-specific items belong here rather than in the shipped write-up. First,
 **read-after-write consistency on a multi-replica cloud**: the tick loop writes
-tick N and immediately reads it back to compute N+1, which is trivially
-consistent on a single node but can read a stale frontier when
-`SharedMergeTree` spreads reads across replicas — the fix is
-`select_sequential_consistency` on the loop's reads, and it is unproven at
-match cadence. Second, **tick rate**: the loop runs a 500 ms tick, which suits a
-turn-paced grid game and would not survive an action game's frame budget. The
-[arena architecture doc](./docs/arena/ARCHITECTURE.md) already states that fit
-boundary outright — read-after-write every tick is the wrong engine for 60 fps —
-rather than implying an OLAP database is a general-purpose game server.
+tick N and immediately reads it back to compute N+1 — trivially consistent on one
+node, but a stale frontier is possible once `SharedMergeTree` spreads reads across
+replicas. The fix is `select_sequential_consistency` on the loop's reads,
+unproven at match cadence. Second, **tick rate**: the loop's 500 ms tick suits a
+turn-paced grid game but would not survive an action game's frame budget. The
+[arena architecture doc](./docs/arena/ARCHITECTURE.md) states that fit boundary
+outright — read-after-write every tick is the wrong engine for 60 fps — rather
+than implying an OLAP database is a general-purpose game server.
 
 ## More engine adapters
 

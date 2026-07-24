@@ -11,18 +11,17 @@ bots to play the level, records ~10 Hz positional telemetry into ClickHouse, and
 answers with a **death heatmap** drawn over your actual map — not a paragraph.
 Ask **"the coins are luring players into the slime room — what if I move them to
 the safe area?"** and it mutates the level (with your approval), re-runs the swarm
-on matched seeds, and renders the **before/after delta heatmap** that proves the
-fix worked: **the death rate falls from ~50% to ~22%** (nearly 30 points, over 100
-matched runs). Ask instead to
-just *move the slime off the doorway* and it proves the opposite — the death rate
-barely moves, the deaths only relocate, because the enemy chases wherever you
-place it. The tool tells you which of your fixes actually work.
+on matched seeds, and renders a **before/after delta heatmap** that proves the
+fix: **the death rate falls from ~50% to ~22%** (nearly 30 points, over 100
+matched runs). Ask instead to just *move the slime off the doorway* and it proves
+the opposite — the death rate barely moves and the deaths only relocate, because
+the enemy chases wherever you place it. The tool tells you which fixes actually
+work.
 
-The agent doesn't query a canned dataset — it acts to create one. Each swarm run
-and level mutation *generates* the telemetry ClickHouse then aggregates, so the
-agent answers a what-if by running the experiment, not by looking one up. The
-answer is the product: every reply is a chart you can click into, not text about
-a chart.
+The agent doesn't query a canned dataset — it creates one. Each swarm run and
+level mutation *generates* the telemetry ClickHouse then aggregates, so a what-if
+is answered by running the experiment, not looking one up. The answer is the
+product: every reply is a chart you can click into, not text about a chart.
 
 ## The loop
 
@@ -83,14 +82,13 @@ chain (see [SCHEMA.md](./SCHEMA.md) for every choice with rationale):
   primary-key replay, keyed on a new archetype value.
 
 Measured on ClickHouse Cloud during development: **over 700,000 events across
-1,000+ runs** (and still growing as the swarm runs). Heatmap reads over the
-materialized-view aggregate return in **≈70 ms at rest, and hold a median of
-~85 ms (p90 ~140 ms) even during active ingest** (measured while a loader wrote
-~900 rows/run continuously); the live-ops panel sustains **~80 events/sec of
-mid-run streaming** from three concurrent paced bots. The live figures are shown
-in the app header and on every card footer
-(`N runs · M cells · <table (engine)> · Xms`), so a judge can verify the
-database is doing real work, not decorating a toy table.
+1,000+ runs**, still growing as the swarm runs. Heatmap reads over the
+materialized-view aggregate return in **≈70 ms at rest and hold a median of
+~85 ms (p90 ~140 ms) even during active ingest** (while a loader wrote ~900
+rows/run continuously); the live-ops panel sustains **~80 events/sec of mid-run
+streaming** from three concurrent paced bots. These live figures show in the app
+header and every card footer (`N runs · M cells · <table (engine)> · Xms`), so a
+judge can verify the database is doing real work, not decorating a toy table.
 
 ## How Trigger.dev is used (orchestration)
 
@@ -197,11 +195,10 @@ import "@playerplayer/sdk/styles.css"; // compiled utilities — no Tailwind req
 The swarm's engine seam is a single interface, `HeadlessAdapter`
 (`src/game/adapter.ts`): given a seed, archetype, and level, `run()` drives one
 headless playthrough and returns telemetry in the shared shape. Everything
-downstream — the ClickHouse firehose, the materialized views, and every card the
-chat renders — is engine-agnostic and consumes that telemetry unchanged, so a
-new engine implements only `run()`. The repo ships the Phaser adapter
-(`phaserAdapter`), and the swarm's bot-run task drives the game exclusively
-through it.
+downstream — the ClickHouse firehose, the materialized views, every card the chat
+renders — is engine-agnostic and consumes that telemetry unchanged, so a new
+engine implements only `run()`. The repo ships the Phaser adapter
+(`phaserAdapter`); the `bot-run` task drives the game exclusively through it.
 
 > The package is **published on npm as
 > [`@playerplayer/sdk`](https://www.npmjs.com/package/@playerplayer/sdk)** (MIT,
@@ -210,6 +207,47 @@ through it.
 > exercised.
 
 ## Architecture
+
+```mermaid
+flowchart LR
+  subgraph games ["The games"]
+    dungeon["Phaser dungeon /<br/>@playerplayer/sdk popover"]
+    arena["ClickHouse Arena /arena<br/>every tick resolved in SQL"]
+  end
+
+  subgraph trigger ["Trigger.dev (durable orchestration)"]
+    chat["playtest-chat<br/>chat.agent() — tools are the product"]
+    exp["run-experiment<br/>needsApproval gate"]
+    bots["bot-run × N<br/>batchTriggerAndWait, matched seeds"]
+    live["live-swarm<br/>bounded queue, paced bots"]
+    watch["regression-watch<br/>schedules.task() nightly"]
+    loop["arena-match-loop<br/>wait.for as the game clock"]
+  end
+
+  subgraph ch ["ClickHouse (the only datastore)"]
+    events[("game_events<br/>MergeTree + typed JSON")]
+    mv{{"game_heatmap_mv<br/>insert-time MV"}}
+    heat[("game_heatmap<br/>AggregatingMergeTree")]
+    runs[("game_runs")]
+    agent[("agent_events")]
+    reports[("watch_reports")]
+    arenaT[("match_state + 4 more<br/>ReplacingMergeTree, FINAL")]
+  end
+
+  ui["dashboard · copilot cards<br/>provenance on every card"]
+
+  dungeon -- "~10 Hz telemetry" --> events
+  arena -- "INSERT…SELECT per tick" --> arenaT
+  chat --> exp -- "on Approve" --> bots -- "swarm telemetry" --> events
+  live --> events
+  dungeon & bots -- "1 row per run" --> runs
+  events --> mv --> heat
+  watch --> reports
+  loop -- "advance + resume" --> arenaT
+  chat -- "logs itself" --> agent
+  heat -- "reads (readonly:2)" --> ui
+  arenaT -- "SVG frame, FORMAT RawBLOB" --> arena
+```
 
 - **`/`** — the vendored Phaser game, playable in the browser, with the copilot
   popover mounted through the SDK. Your run streams into the same ClickHouse
@@ -277,15 +315,12 @@ numbers on every card are the live query's, shown in the provenance footer.
 
 ## What's next
 
-The post-hackathon direction is written up in [ROADMAP.md](./ROADMAP.md)
-(clearly labelled — none of it was built during the event): an authenticated
-multi-game ingest protocol, time-bucketed rollups with aligned retention, more
-engine adapters over the `HeadlessAdapter` seam, and an onboarding agent that
-introspects your map and generates the adapter for you. Today's honest scope:
-the popover + telemetry install anywhere; the ingest endpoint accepts bounded
-**custom telemetry properties** (`gameId` + per-event `props` into the JSON
-envelope) but remains a same-origin demo surface; the swarm needs a per-engine
-adapter, and this repo ships Phaser's.
+The post-hackathon direction is written up in [ROADMAP.md](./ROADMAP.md): an
+authenticated multi-game ingest protocol, time-bucketed rollups with aligned
+retention, more engine adapters over the `HeadlessAdapter` seam, and an
+onboarding agent that introspects your map and generates the adapter for you.
+Today's `/api/ingest` accepts bounded **custom telemetry properties** (`gameId` +
+per-event `props` into the JSON envelope) but remains a same-origin demo surface.
 
 ## License
 
