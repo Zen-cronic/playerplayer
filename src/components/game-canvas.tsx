@@ -65,8 +65,8 @@ export function GameCanvas({
           Move
         </span>
         <span className="key-guide">
-          <span className="key-cap">Space</span>
-          Attack
+          <span className="key-cap">Point + click</span>
+          Shoot
         </span>
         <span>Collect coins · avoid slimes</span>
       </div>
