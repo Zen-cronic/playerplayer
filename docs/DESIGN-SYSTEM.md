@@ -1,15 +1,15 @@
-# Playtest Swarm design system
+# PlayerPlayer design system
 
 ## Product signal
 
-Playtest Swarm should read as a game-design instrument, not a generic AI chat or a
+PlayerPlayer should read as a game-design instrument, not a generic AI chat or a
 generic observability dashboard. Within five seconds a judge should understand the
 loop: play a level, ask the agent what happened, compare a mutation, and inspect the
 evidence behind the answer.
 
-The implementation follows the system-building method in `../../rev-eng-design`:
-semantic tokens, a 4px rhythm, shared primitives, explicit interaction states, and a
-small number of signature visual ideas carried across every route.
+The implementation is token-driven rather than ad hoc: semantic tokens, a 4px
+rhythm, shared primitives, explicit interaction states, and a small number of
+signature visual ideas carried across every route.
 
 ## Visual direction
 
@@ -19,9 +19,12 @@ small number of signature visual ideas carried across every route.
   structural rules.
 - **Signals:** violet marks AI actions, ember marks danger/regression, acid yellow
   marks live compute, green marks verified/healthy states.
-- **Instrument surfaces:** the game, heatmaps, and raw telemetry are the only dark
-  surfaces. This makes live evidence feel embedded in the product instead of placed
-  in another card.
+- **Instrument surfaces:** the game, heatmaps, raw telemetry, and the `/arena`
+  match grid are the only dark surfaces. This makes live evidence feel embedded in
+  the product instead of placed in another card. The arena's ClickHouse-rendered
+  SVG frame deliberately mirrors the React grid's palette and radius, so toggling
+  between them reads as the same surface drawn by a different engine — not as a
+  different component.
 - **Signature element:** the swarm field — a faint tile grid and small moving nodes
   derived from the game map. It appears in the game stage, AI launcher, and data
   visualization chrome, never as general decoration.

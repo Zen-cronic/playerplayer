@@ -112,6 +112,56 @@ ClickHouse error can never leak a host onto a page.
 `ReplacingMergeTree(inserted_at)` read with `FINAL` — idempotent nightly
 upserts, unchanged from v1 (it was already right).
 
+### Arena tables — ClickHouse as the game engine
+
+A second, independent surface (`migrations/0004_arena`): a live multiplayer grid
+game whose authoritative state ClickHouse *computes*, rather than stores. Tick
+N+1 is a pure SQL function of `match_state(N)` + `match_inputs(N)` +
+`match_geometry`, so movement, collision tiebreaks, pickups, hazards, and scoring
+resolve in one `INSERT … SELECT` (see `src/lib/arena.ts`). Five tables, all new —
+nothing above is altered.
+
+```sql
+matches         (match_id, room, width, height, max_ticks, tick_ms, created_at)
+                ENGINE = MergeTree ORDER BY (match_id)
+match_players   (match_id, player_id, kind Enum8('human','bot'), archetype, seed, joined_at)
+                ENGINE = MergeTree ORDER BY (match_id, player_id)
+match_geometry  (match_id, cell_x, cell_y, kind Enum8('floor','wall','hazard','spawn','coin'))
+                ENGINE = MergeTree ORDER BY (match_id, cell_x, cell_y)
+match_inputs    (match_id, tick, player_id, seq, intent Enum8('up','down','left','right','stay'), …)
+                ENGINE = MergeTree ORDER BY (match_id, tick, player_id, seq)
+match_state     (match_id, tick, player_id, x, y, score, alive, inserted_at)
+                ENGINE = ReplacingMergeTree(inserted_at) ORDER BY (match_id, tick, player_id)
+```
+
+- **`match_id` leads every key** because every read filters exactly one match,
+  and usually one tick within it. Same filter-alignment principle as
+  `game_events`, applied to a different access pattern.
+- **`match_state` is a `ReplacingMergeTree(inserted_at)`, read with `FINAL`.**
+  This is what makes concurrent advancers safe: a durable Trigger.dev loop and a
+  manual `/step` can both resolve the same tick, and because resolution is
+  deterministic they produce **byte-identical rows** that collapse to one per
+  player. Idempotence is a property of the engine choice, not of a lock — the
+  JS existence check is a fast-path skip, not the correctness guarantee.
+- **Coins are not a table.** A coin is static geometry (`kind='coin'`), and
+  "consumed" is *derived* from state history — no surviving player has ever stood
+  on that cell. Deriving it keeps tick resolution a single write to one table
+  instead of a write plus a coin-state reconciliation.
+- **`Enum8` here, `LowCardinality(String)` there — deliberately opposite.**
+  `game_events.type` is a string because the envelope must accept a new game's
+  event types without DDL. The arena's `kind` and `intent` are closed domains the
+  resolution SQL depends on by name, so an unexpected value should be a *write
+  error*, not a silently-ignored row. Extensibility is right for the firehose;
+  strictness is right for the rule set.
+- **Codecs follow the same logic as the firehose:** `tick` is monotone within a
+  match → `Delta`; `inserted_at` near-monotone → `Delta`; positions and scores
+  are small integers → `ZSTD(1)`.
+
+ClickHouse also **renders** this world: `FRAME_SQL` (`src/lib/arena-frame.ts`)
+assembles an `<svg>` of the current tick — geometry, remaining coins, every
+player — entirely in SQL, served as bytes via `FORMAT RawBLOB`. See
+[docs/arena/](./docs/arena/) for the architecture and ADRs.
+
 ### `schema_migrations` — the ledger
 
 `ReplacingMergeTree(applied_at) ORDER BY id`, read via `argMax` grouping so the
@@ -121,8 +171,10 @@ applied-set is correct even with unmerged duplicate rows — no `FINAL`, no
 ## Migrations
 
 Forward-only, Alembic-style: `migrations/0001_v1_baseline` (the original DDL,
-verbatim) → `0002_envelope` (v2 tables) → `0003_backfill_v1_to_v2`. Properties
-worth copying:
+verbatim) → `0002_envelope` (v2 tables) → `0003_backfill_v1_to_v2` →
+`0004_arena` (the arena tables above — additive only, no existing table
+touched, so it carries no backfill and no parity gate). Properties worth
+copying:
 
 - **Single-writer is structural, not conventional.** Only the CLI
   (`pnpm migrate`) applies migrations. App and worker processes call a

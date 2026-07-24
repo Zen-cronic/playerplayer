@@ -39,7 +39,7 @@ a chart.
    versus the swarm?"* — your run is drawn as a ghost trail over the bots'
    deaths, with the archetype breakdown of who dies where you died.
 
-## How ClickHouse is used (primary database, load-bearing)
+## How ClickHouse is used (primary database)
 
 ClickHouse is the only datastore. It carries the telemetry firehose *and* every
 analytical view the chat renders — no OLTP tier in the hot path. The schema is a
@@ -69,7 +69,7 @@ chain (see [SCHEMA.md](./SCHEMA.md) for every choice with rationale):
 - **`watch_reports`** — `ReplacingMergeTree` (read with `FINAL`) stores the
   nightly canary's verdicts idempotently.
 - **Versioned migrations** — an Alembic-style forward-only chain
-  (`migrations/0001…0003`) with a `schema_migrations` ledger, sha256 checksums,
+  (`migrations/0001…0004`) with a `schema_migrations` ledger, sha256 checksums,
   and **parity-checked backfill**: the 684k-row v1→v2 copy was gated on six A/B
   equality checks (counts, per-experiment deaths, props round-trip, MV totals)
   before the cutover commit. Only the CLI applies migrations; app processes
@@ -82,8 +82,8 @@ chain (see [SCHEMA.md](./SCHEMA.md) for every choice with rationale):
   so the ghost-overlay comparison is just the existing heatmap MV plus a
   primary-key replay, keyed on a new archetype value.
 
-Measured on ClickHouse Cloud during development: **over 600,000 events across
-950+ runs** (and still growing as the swarm runs). Heatmap reads over the
+Measured on ClickHouse Cloud during development: **over 700,000 events across
+1,000+ runs** (and still growing as the swarm runs). Heatmap reads over the
 materialized-view aggregate return in **≈70 ms at rest, and hold a median of
 ~85 ms (p90 ~140 ms) even during active ingest** (measured while a loader wrote
 ~900 rows/run continuously); the live-ops panel sustains **~80 events/sec of
@@ -92,7 +92,7 @@ in the app header and on every card footer
 (`N runs · M cells · <table (engine)> · Xms`), so a judge can verify the
 database is doing real work, not decorating a toy table.
 
-## How Trigger.dev is used (orchestration, load-bearing)
+## How Trigger.dev is used (orchestration)
 
 - **`chat.agent()`** (task `playtest-chat`) is the durable conversation. Its
   tools are the whole product surface: `describeLevel`, `runSwarm`,
@@ -136,6 +136,35 @@ database is doing real work, not decorating a toy table.
   rather than raw cell arrays, so the model's context stays small and it answers
   with the rendered card instead of re-narrating coordinates.
 
+## Arena — ClickHouse as the game engine
+
+A second, self-contained exhibit at **`/arena`**, sharing no code with the
+copilot: a live multiplayer grid game whose authoritative state ClickHouse
+doesn't just *store* but **computes**.
+
+- **The tick is one SQL statement.** State at tick N+1 is a pure function of
+  `match_state(N)` + `match_inputs(N)` + `match_geometry`, so movement, collision
+  tiebreaks (`row_number() OVER (PARTITION BY …)` resolves two players reaching
+  the same cell), coin pickups, hazard deaths, and scoring all resolve in a
+  single deterministic `INSERT … SELECT`. There is no application-side game loop
+  — the database *is* the engine (`RESOLUTION_SQL` in `src/lib/arena.ts`).
+- **The database draws the frame.** `FRAME_SQL` (`src/lib/arena-frame.ts`)
+  assembles an `<svg>` of the current tick — geometry cells, the coins still on
+  the board, every player token — entirely in SQL via
+  `arrayStringConcat(groupArray(concat(…)))`, served as bytes with
+  `FORMAT RawBLOB` through a read-only user and a same-origin proxy. The
+  **"Rendered in ClickHouse"** toggle on `/arena` swaps the React grid for that
+  SQL-drawn image. ClickHouse renders a picture of the world it just simulated.
+- **Trigger.dev is the durable clock.** `match-loop` advances the match with
+  `wait.for` between ticks, so an interrupted match resumes and converges on a
+  byte-identical final state — proven by test, and safe because deterministic
+  resolution plus `ReplacingMergeTree` makes a doubly-resolved tick collapse to
+  one row per player instead of corrupting the match.
+
+Schema in [SCHEMA.md](./SCHEMA.md); design, diagram, ADRs, and the honest fit
+boundary (where an OLAP engine stops being the right tool for a game loop) in
+[docs/arena/](./docs/arena/).
+
 ## Install into your own game (SDK)
 
 The chat widget is extracted as an npm package, **`@playerplayer/sdk`**, and this
@@ -169,11 +198,11 @@ new engine implements only `run()`. The repo ships the Phaser adapter
 (`phaserAdapter`), and the swarm's bot-run task drives the game exclusively
 through it.
 
-> The package builds locally (`pnpm --filter @playerplayer/sdk build`) and passes
-> `npm pack` clean; **publishing it to npm as `@playerplayer/sdk` is a
-> submission-time step**, so the registry entry may not exist until then. The
-> snippet above is the shipping API, and this app already imports the package
-> (not the source), so the integration is exercised regardless.
+> The package is **published on npm as
+> [`@playerplayer/sdk`](https://www.npmjs.com/package/@playerplayer/sdk)** (MIT,
+> six files, no runtime dependencies — peers only). This app imports the package
+> rather than the source, so the published integration path is the one actually
+> exercised.
 
 ## Architecture
 
@@ -190,6 +219,9 @@ through it.
   the operator sets `AGENT_LOG_PUBLIC=1`, since the dashboard is public);
   **Live ops** (launch a wave of paced bots and watch events/sec, active runs,
   and hot cells update as they stream — the data shape of a multiplayer game).
+- **`/arena`** — the ClickHouse-as-game-engine exhibit: a live multiplayer match
+  whose every tick is resolved (and optionally drawn) by SQL, clocked by a
+  durable Trigger.dev loop.
 
 Two clocks, one codebase: bots run headless Phaser on a time-warped RAF for
 faster-than-realtime simulation; the human game runs the same modules on a real
@@ -222,6 +254,16 @@ re-runnable matched-seed A/Bs:
 pnpm seed:demo    # regenerates the demo experiments (coins-to-safety, crowd-the-corridor)
 pnpm test:e2e     # drives the real flows: chat read, approval gate, ghost overlay, delta card
 pnpm bot          # runs one headless bot and prints its telemetry
+pnpm arena:check  # proves one arena tick resolves deterministically in SQL (local CH only)
+```
+
+The Trigger.dev leg has its own manual smoke checks, each exercising one task
+end-to-end against a running `pnpm dev:trigger` worker:
+
+```bash
+pnpm smoke:trigger     # one bot-run: headless sim → batched ClickHouse insert
+pnpm smoke:experiment  # a small matched-seed A/B through batchTriggerAndWait
+pnpm smoke:watch       # the nightly regression canary (schedules.task)
 ```
 
 `seed:demo` moves the coins out of the slime room and re-runs the swarm — the

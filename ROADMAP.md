@@ -27,10 +27,24 @@ firehose, and TTLs whose windows are aligned across raw and rolled-up tables
 ## Real multiplayer ingestion
 
 The live-ops lane already streams paced bot telemetry mid-run (~80 events/sec
-sustained in the demo) through the same envelope a multiplayer game would use.
-The multiplayer version is the ingest protocol above plus sharded run-id
-namespaces and sustained-load benchmarks — the read side (heatmaps, deltas,
-live panel) needs no changes.
+sustained in the demo) through the same envelope a multiplayer game would use,
+and the shipped `/arena` exhibit already runs real multiplayer matches whose
+ticks ClickHouse resolves in SQL. What is *not* built is the scale-out story for
+either: the ingest protocol above plus sharded run-id namespaces and
+sustained-load benchmarks — the read side (heatmaps, deltas, live panel) needs
+no changes.
+
+Two arena-specific items belong here rather than in the shipped write-up. First,
+**read-after-write consistency on a multi-replica cloud**: the tick loop writes
+tick N and immediately reads it back to compute N+1, which is trivially
+consistent on a single node but can read a stale frontier when
+`SharedMergeTree` spreads reads across replicas — the fix is
+`select_sequential_consistency` on the loop's reads, and it is unproven at
+match cadence. Second, **tick rate**: the loop runs a 500 ms tick, which suits a
+turn-paced grid game and would not survive an action game's frame budget. The
+[arena architecture doc](./docs/arena/ARCHITECTURE.md) already states that fit
+boundary outright — read-after-write every tick is the wrong engine for 60 fps —
+rather than implying an OLAP database is a general-purpose game server.
 
 ## More engine adapters
 
