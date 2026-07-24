@@ -313,6 +313,17 @@ pnpm smoke:watch       # the nightly regression canary (schedules.task)
 death rate really does fall ~25 points; crowd the chokepoint and it rises. The
 numbers on every card are the live query's, shown in the provenance footer.
 
+## Deployment
+
+The app deploys to Vercel; the Trigger.dev tasks deploy to Trigger's cloud; both
+share one ClickHouse database. Environment variables split by where the code that
+reads them runs — the app's on Vercel, the tasks' on Trigger, with `CLICKHOUSE_URL`
+on both. Full mapping and steps in [DEPLOY.md](./DEPLOY.md).
+
+One gotcha up front: `ANTHROPIC_API_KEY` belongs on **Trigger**, not Vercel — the
+copilot's model call runs inside the task, so a missing key there makes the chat
+hang while the app otherwise looks healthy.
+
 ## What's next
 
 The post-hackathon direction is written up in [ROADMAP.md](./ROADMAP.md): an
