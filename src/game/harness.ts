@@ -144,13 +144,11 @@ export function runBot(opts: RunOptions): Promise<RunResult> {
         events: telemetry.events,
       };
       game.events.off(Phaser.Core.Events.POST_STEP, onPostStep);
-      // destroy() only marks pendingDestroy; teardown happens on the game's
-      // next step, and its final step re-requests a frame after DESTROY
-      // fires. Flush that zombie frame on the next tick, before resolving,
-      // so the next run boots onto a clean scheduler. Pacing resets here too —
-      // one paced run must never leak its pace into the next run in the
-      // process — and any in-flight chunk settles first so flushedEvents is
-      // the true acked cursor.
+      // destroy() only marks pendingDestroy; teardown happens on the game's next step, whose
+      // final step re-requests a frame after DESTROY fires. Flush that zombie frame on the
+      // next tick before resolving, so the next run boots onto a clean scheduler. Pacing
+      // resets here (one paced run must never leak its pace into the next), and any in-flight
+      // chunk settles first so flushedEvents is the true acked cursor.
       game.events.once(Phaser.Core.Events.DESTROY, () => {
         setImmediate(async () => {
           if (inFlight) await inFlight.catch(() => {});

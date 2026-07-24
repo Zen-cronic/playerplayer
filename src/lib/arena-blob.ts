@@ -1,11 +1,10 @@
 import { getClickHouse, READ_SETTINGS } from "./clickhouse";
 
-// ClickHouse-as-web-server: a match-state snapshot served as JSON bytes straight
-// from ClickHouse via FORMAT RawBLOB. The preferred path uses a dedicated read-only
-// user (arena_reader) over HTTP whose SETTINGS PROFILE bakes the Content-Type header
-// (a readonly user cannot set http_response_headers per-query, so the header is baked
-// into the profile instead). The CH host lives only in server-side env; the browser
-// reaches this only through the same-origin /api/arena/state-blob proxy.
+// Match-state snapshot served as JSON bytes from ClickHouse via FORMAT RawBLOB.
+// Preferred path: read-only arena_reader user over HTTP whose SETTINGS PROFILE bakes the
+// Content-Type header (a readonly user cannot set http_response_headers per-query).
+// The CH host lives only in server-side env — the browser reaches this only through the
+// same-origin /api/arena/state-blob proxy, so the host never leaks to the client.
 
 export const SNAPSHOT_SQL = `
 SELECT toJSONString(groupArray(map(
@@ -22,22 +21,20 @@ export interface SnapshotResult {
   source: "clickhouse-rawblob" | "clickhouse-rawblob-fallback";
 }
 
-// Validate the bytes are the snapshot (a JSON array) before they can reach the
-// browser. ClickHouse can return HTTP 200 and then append an exception to a FORMAT
-// response on a mid-stream error (memory/time cap, shard failure); such text can
-// embed host:port. Re-serializing a parsed array strips any trailing bytes, and a
-// non-array/parse failure throws — the route's generic catch turns it into a 500, so
-// an upstream exception string never surfaces to the client.
+// SECURITY: ClickHouse can return HTTP 200 then append an exception to a FORMAT response
+// on a mid-stream error (memory/time cap, shard failure), and that text can embed
+// host:port. Re-serializing the parsed array strips any trailing bytes; a non-array/parse
+// failure throws → the route's catch turns it into a generic 500, so an upstream
+// exception string never reaches the client.
 function assertSnapshot(blob: string): string {
   const parsed = JSON.parse(blob);
   if (!Array.isArray(parsed)) throw new Error("unexpected snapshot shape");
   return JSON.stringify(parsed);
 }
 
-// Returns the snapshot JSON bytes + which path served them. Never returns or logs
-// the CH host. `source` is honest: the fallback (no ARENA_READER_URL) runs the same
-// query through the main client and is labelled as such — never presented as the
-// dedicated read-only RawBLOB path.
+// Returns the snapshot bytes + which path served them; never returns or logs the CH host.
+// The fallback (no ARENA_READER_URL) runs the same query through the main client and is
+// labelled honestly as -fallback, not as the dedicated RawBLOB path.
 export async function snapshotBlob(matchId: string): Promise<SnapshotResult> {
   const readerUrl = process.env.ARENA_READER_URL;
   if (readerUrl) {

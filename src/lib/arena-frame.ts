@@ -1,18 +1,15 @@
 import { getClickHouse, READ_SETTINGS } from "./clickhouse";
 
-// ClickHouse-as-live-renderer: the same engine that resolves each tick in SQL also
-// DRAWS the frame. FRAME_SQL assembles an <svg> of the authoritative world — geometry
-// cells, the coins still on the board, and every player at the frontier tick — entirely
-// inside ClickHouse, served as bytes via FORMAT RawBLOB. The database doesn't just
-// return state; it renders a picture of the world it just simulated.
-//
-// The preferred path uses the read-only arena_reader user over HTTP (its profile already
-// grants SELECT on match_state + match_geometry — the two tables the frame reads, so no
-// new DDL). The CH host lives only in server-side env; the browser reaches this only
-// through the same-origin /api/arena/frame proxy, which restamps the Content-Type.
+// FRAME_SQL assembles an <svg> of the authoritative world — geometry cells, remaining
+// coins, and every player at the frontier tick — entirely inside ClickHouse, served as
+// bytes via FORMAT RawBLOB (the same engine that resolves each tick also draws the frame).
+// Preferred path: read-only arena_reader over HTTP (its profile already grants SELECT on
+// match_state + match_geometry, so no new DDL). The CH host lives only in server-side env
+// — the browser reaches this only through the same-origin /api/arena/frame proxy (which
+// restamps the Content-Type), so the host never leaks to the client.
 
-// Pixel geometry of the rendered grid. These are trusted constants, inlined into the
-// SQL as literals (never user input) so the coordinate arithmetic stays in ClickHouse.
+// Pixel geometry of the rendered grid: trusted constants inlined as SQL literals (never
+// user input) so the coordinate arithmetic stays in ClickHouse.
 const U = 22; // cell edge
 const HALF = 11; // cell centre offset (U/2)
 const PR = 8; // player token radius
@@ -21,10 +18,9 @@ const FS = 11; // player-label font-size
 // Player palette mirrors PLAYER_COLORS in src/app/arena/page.tsx (kept in sync by hand).
 const PALETTE = "['#d8f24b','#72d7ff','#ffb45e','#c9a9ff','#ff7898','#83e8c2','#f9e46d','#ff9c74']";
 
-// One statement, one column `blob`: an <svg> built from geometry + frontier state +
-// derived remaining coins. {matchId} and {humanId} are ClickHouse params (safe); the
-// pixel constants above are inlined. Coins are derived exactly like coinsRemaining() —
-// a coin cell no surviving player has ever stood on — so no coin table is needed.
+// One statement → one `blob` column of <svg>. {matchId}/{humanId} are ClickHouse params;
+// the pixel constants above are inlined. Coins are derived like coinsRemaining() — a coin
+// cell no surviving player has ever stood on — so no coin table is needed.
 export const FRAME_SQL = `
 WITH
   geo AS (
@@ -81,11 +77,11 @@ export interface FrameResult {
   source: "clickhouse-rawblob" | "clickhouse-rawblob-fallback";
 }
 
-// Validate the bytes are an SVG document before they can reach the browser. ClickHouse
-// can return HTTP 200 and then append an exception to a FORMAT response on a mid-stream
-// error (memory/time cap, shard failure); such text can embed host:port. Truncating at
-// the last </svg> strips any trailing bytes, and a non-<svg> prefix throws — the route's
-// generic catch turns it into a 500, so an upstream exception string never surfaces.
+// SECURITY: ClickHouse can return HTTP 200 then append an exception to a FORMAT response
+// on a mid-stream error (memory/time cap, shard failure), and that text can embed
+// host:port. Truncating at the last </svg> strips any trailing bytes; a non-<svg> prefix
+// throws → the route's catch turns it into a generic 500, so an upstream exception string
+// never reaches the client.
 function assertSvg(raw: string): string {
   const s = raw.trimStart();
   if (!s.startsWith("<svg")) throw new Error("unexpected frame shape");
@@ -94,9 +90,9 @@ function assertSvg(raw: string): string {
   return s.slice(0, end + "</svg>".length);
 }
 
-// Returns the SVG bytes + which path served them. Never returns or logs the CH host.
-// `source` is honest: the fallback (no ARENA_READER_URL) runs the same query through the
-// main client and is labelled as such — never presented as the dedicated RawBLOB path.
+// Returns the SVG bytes + which path served them; never returns or logs the CH host.
+// The fallback (no ARENA_READER_URL) runs the same query through the main client and is
+// labelled honestly as -fallback, not as the dedicated RawBLOB path.
 export async function renderFrame(matchId: string, humanId = -1): Promise<FrameResult> {
   const readerUrl = process.env.ARENA_READER_URL;
   if (readerUrl) {

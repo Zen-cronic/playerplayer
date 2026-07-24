@@ -52,17 +52,14 @@ export async function fetchStackHealth(): Promise<{
   }
 }
 
-// Launching the live demo is a PUBLIC compute endpoint, so it is guarded three
-// ways: (1) hard bounds live server-side AND in the task's zod schema — a
-// visitor cannot control wave size; (2) a data-enforced global cooldown — any
-// live-* event in the last 5 minutes refuses the launch; (3) the experiment id
-// AND the global-scope idempotency key both derive from the same 5-minute
-// bucket, so racing calls in one bucket produce an identical payload+key and
-// dedupe to ONE run whose id every caller truthfully reports (verified live:
-// a double launch created a single swarm). The two guards interlock: same
-// bucket → key dedupes; later bucket → the earlier wave's events trip the
-// cooldown. Worst case: one bounded 18-run wave per 5 minutes on a 3-slot
-// queue.
+// Launching the live demo is a PUBLIC compute endpoint, guarded three ways: (1) hard bounds
+// live server-side AND in the task's zod schema, so a visitor can't control wave size; (2) a
+// data-enforced global cooldown — any live-* event in the last 5 minutes refuses the launch;
+// (3) the experiment id AND the global-scope idempotency key both derive from the same
+// 5-minute bucket, so racing calls in one bucket produce an identical payload+key and dedupe
+// to ONE run. The guards interlock: same bucket → key dedupes; later bucket → the earlier
+// wave's events trip the cooldown. Worst case: one bounded 18-run wave per 5 minutes on a
+// 3-slot queue.
 export async function launchLiveSwarm(): Promise<{
   ok: boolean;
   experimentId?: string;

@@ -86,8 +86,7 @@ export const regressionWatch = schedules.task({
         },
       ],
       format: "JSONEachRow",
-      // Same insert settings as every other write path — this was the one bare
-      // insert in the codebase.
+      // Same insert settings as every other write path.
       clickhouse_settings: { async_insert: 1, wait_for_async_insert: 1 },
     });
 

@@ -1,41 +1,27 @@
 import { runBot, type RunOptions, type RunResult } from "./harness";
 
-// The engine seam.
-//
-// Everything DOWNSTREAM of a HeadlessAdapter is engine-agnostic and ships in the
-// `@playerplayer/sdk` SDK: the telemetry shape (TelemetryEvent), the ClickHouse
-// firehose + materialized views, the chat cards, and the before/after delta
-// heatmap. The adapter is the ONE engine-specific piece of the bot swarm — it
-// drives a real headless playthrough and emits telemetry in the shared shape.
-//
-// To bring the bot-swarm counterfactual to another engine (Godot, a Unity WebGL
-// export, a hand-rolled canvas game), implement this interface for that engine
-// and hand it to the bot-run task. Nothing else changes: the same MVs aggregate
-// its telemetry and the same cards render it.
-//
-// SCOPE, stated honestly: the popover + play-telemetry capture install into ANY
-// web game with no adapter — they read whatever telemetry the game already
-// writes. Only the *simulation* half (running your level headless to generate
-// the counterfactual swarm) needs a per-engine adapter. This repo ships Phaser's;
-// other engines need their own. No game gets a bot swarm "for free".
+// The engine seam. Everything downstream of a HeadlessAdapter is engine-agnostic and ships
+// in @playerplayer/sdk (telemetry shape, ClickHouse MVs, chat cards, delta heatmap); the
+// adapter is the ONE engine-specific piece — it runs a headless playthrough and emits
+// telemetry in the shared shape. Port to another engine by implementing this interface;
+// nothing downstream changes. Scope, stated honestly: the popover + play-telemetry capture
+// install into any web game with no adapter, but the simulation half (the headless
+// counterfactual swarm) needs a per-engine adapter — this repo ships Phaser's, no game gets
+// a bot swarm "for free".
 export interface HeadlessAdapter {
   /** Engine identifier, e.g. "phaser". Available for run metadata/provenance. */
   readonly engine: string;
   /**
-   * Run ONE headless playthrough of `opts.level` under `opts.seed` and
-   * `opts.archetype`, applying `opts.mapPath` (a mutated level) when given, and
-   * resolve with the telemetry stream + verdict. Must be deterministic for a
-   * fixed seed so baseline and mutated variants stay matched — that guarantee
-   * applies to the flat-out path, which all matched-seed science uses; the
-   * live-lane `pace`/`onFlush` options trade frame determinism for wall-clock
-   * pacing and mid-run streaming, and are never used for experiments.
+   * Run ONE headless playthrough of `opts.level` under `opts.seed`/`opts.archetype`,
+   * applying `opts.mapPath` (a mutated level) when given; resolve with telemetry + verdict.
+   * Must be deterministic for a fixed seed so baseline and mutated variants stay matched —
+   * that guarantee is for the flat-out path; the live-lane `pace`/`onFlush` options trade
+   * frame determinism for pacing/streaming and are never used for experiments.
    *
-   * Concurrency contract: ONE run at a time per process. The swarm gets its
-   * parallelism by fanning `bot-run` tasks across separate workers (each its own
-   * process), not by running two adapters in one process. The Phaser adapter
-   * drives a process-global simulation clock, so overlapping runs in a single
-   * process would interleave and corrupt telemetry; callers here are strictly
-   * sequential. A new engine's adapter may relax this if its engine allows it.
+   * Concurrency: ONE run at a time per process. The swarm parallelizes by fanning bot-run
+   * tasks across separate workers, not two adapters in one process — the Phaser adapter
+   * drives a process-global sim clock, so overlapping runs would corrupt telemetry. A new
+   * engine's adapter may relax this if its engine allows.
    */
   run(opts: RunOptions): Promise<RunResult>;
 }

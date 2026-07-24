@@ -389,10 +389,8 @@ export async function stepBots(matchId: string, tick: number, ctx?: StepContext)
 
   if (values.length > 0) {
     // Durable insert (wait for flush): the loop reads these intents back at
-    // resolveTick(tick+1), so they must be visible before the resolution runs.
-    // Fire-and-forget here breaks determinism (a not-yet-flushed intent reads as
-    // 'stay'). This read-after-write is the honest cost of keeping the authoritative
-    // intents in the DB; it is ~60ms and comfortably within a 500ms tick.
+    // resolveTick(tick+1), so they must be visible before resolution runs. Fire-and-forget
+    // breaks determinism (a not-yet-flushed intent reads as 'stay').
     await ch.insert({ table: "match_inputs", values, format: "JSONEachRow", clickhouse_settings: WRITE_SETTINGS });
   }
   return values.length;
@@ -540,12 +538,11 @@ export async function coinsRemaining(matchId: string, tick: number): Promise<Cel
   return rows.map((r) => ({ x: Number(r.cell_x), y: Number(r.cell_y), kind: "coin" as const }));
 }
 
-// Analytics reuse bridge: project one salient event per player per tick into the
-// existing game_events envelope (game_id='arena-grid', experiment_id=matchId), so
-// the existing game_heatmap_mv, heatmapDelta, and chat.agent() copilot light up
-// over live multiplayer matches with no new analytics code. Cell coords are emitted
-// at cell*ARENA_TILE so the heatmap MV's floor(x/16) recovers the exact cell. One
-// deterministic INSERT...SELECT — the MV fires as a side effect.
+// Analytics reuse bridge: project one salient event per player per tick into the existing
+// game_events envelope (game_id='arena-grid', experiment_id=matchId), so game_heatmap_mv,
+// heatmapDelta, and the chat.agent() copilot light up over live matches with no new analytics
+// code. Cells are emitted at cell*ARENA_TILE so the MV's floor(x/16) recovers the exact cell.
+// One deterministic INSERT...SELECT; the MV fires as a side effect.
 export async function emitTickTelemetry(matchId: string, tick: number): Promise<void> {
   if (tick < 1) return;
   const ch = getClickHouse();
@@ -588,11 +585,10 @@ export interface MatchStatus {
   over: boolean;
 }
 
-// Per-cell activity density for a match, read straight from the EXISTING
-// game_heatmap materialized view (game_id='arena-grid'). This is the analytics reuse
-// win made visible: the same rollup that serves the single-player dashboard serves a
-// live multiplayer match with no new aggregation. gx/gy are the arena cells (events
-// were emitted at cell*ARENA_TILE, so the MV's floor(x/16) is the cell).
+// Per-cell activity density for a match, read straight from the EXISTING game_heatmap MV
+// (game_id='arena-grid'): the same rollup that serves the single-player dashboard, now over
+// a live match with no new aggregation. gx/gy are the arena cells (events were emitted at
+// cell*ARENA_TILE, so the MV's floor(x/16) is the cell).
 export async function getArenaHeatmap(matchId: string): Promise<{ x: number; y: number; n: number }[]> {
   const ch = getClickHouse();
   const rs = await ch.query({

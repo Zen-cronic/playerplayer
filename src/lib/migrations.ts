@@ -3,12 +3,10 @@ import type { ClickHouseClient } from "@clickhouse/client";
 import { MIGRATIONS, type Migration } from "../../migrations";
 import { READ_SETTINGS } from "./clickhouse";
 
-// Forward-only, Alembic-style migrations with a hard split of responsibilities:
-// the CLI (scripts/migrate.ts) is the ONLY code path that applies migrations;
-// app and worker processes call ensureMigrations(), which VERIFIES the ledger
-// and throws when the database is behind or drifted. That split — not
-// convention — is what makes a concurrent double-apply (e.g. two cold
-// processes both running a backfill) structurally impossible.
+// Forward-only migrations with a hard responsibility split: the CLI (scripts/migrate.ts)
+// is the ONLY path that applies migrations; app/worker processes call ensureMigrations(),
+// which only VERIFIES the ledger and throws when the database is behind or drifted. That
+// split makes a concurrent double-apply (two cold processes both backfilling) impossible.
 
 const LEDGER_DDL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -34,10 +32,9 @@ interface LedgerRow {
   applied_at: string;
 }
 
-// argMax over the version column makes the read correct even with unmerged
-// ReplacingMergeTree duplicates — no FINAL, no OPTIMIZE. The max() output must
-// NOT be aliased back to `applied_at`: ClickHouse substitutes aliases into
-// sibling expressions, which would turn argMax(name, applied_at) into an
+// argMax reads correctly even with unmerged ReplacingMergeTree duplicates — no FINAL/
+// OPTIMIZE. The max() output must NOT be aliased back to `applied_at`: ClickHouse
+// substitutes aliases into sibling expressions, turning argMax(name, applied_at) into an
 // aggregate-inside-aggregate (ILLEGAL_AGGREGATION).
 async function readLedger(ch: ClickHouseClient): Promise<Map<number, LedgerRow>> {
   const rs = await ch.query({
@@ -103,10 +100,9 @@ async function runPostChecks(ch: ClickHouseClient, m: Migration): Promise<void> 
   }
 }
 
-// CLI-only. Applies every pending migration in order; a migration is recorded
-// only after its statements AND postChecks succeed, so a failed run leaves it
-// pending and re-runnable. Checksum drift on an already-applied migration is a
-// hard failure here too — never edit an applied migration, add a new one.
+// CLI-only. Applies pending migrations in order; recorded only after statements AND
+// postChecks succeed, so a failed run leaves it pending and re-runnable. Checksum drift on
+// an applied migration is a hard failure — never edit an applied migration, add a new one.
 export async function applyPending(
   ch: ClickHouseClient,
   log: (line: string) => void = () => {},
@@ -145,9 +141,9 @@ export async function applyPending(
   return applied;
 }
 
-// CLI `verify`: re-run the parity checks of every applied, reverifiable
-// migration. Apply-time-only gates (reverifiable: false) are reported, not
-// re-run — their source data diverges after cutover by design.
+// CLI `verify`: re-run parity checks of every applied, reverifiable migration. Apply-time-
+// only gates (reverifiable: false) are reported, not re-run — their source data diverges
+// after cutover by design.
 export async function verifyApplied(
   ch: ClickHouseClient,
   log: (line: string) => void = () => {},
@@ -167,10 +163,9 @@ export async function verifyApplied(
 
 let migrationsReady: Promise<void> | null = null;
 
-// App/worker entry points: verify-only, memoized per process (one ledger read
-// replaces v1's five CREATE round-trips). Throws when the database is behind
-// or drifted — it never applies anything. Callers already degrade opaquely
-// (the ingest route 500s generically; a Trigger run fails visibly).
+// App/worker entry point: verify-only, memoized per process. Throws when the database is
+// behind or drifted — never applies anything. Callers degrade opaquely (the ingest route
+// 500s generically; a Trigger run fails visibly).
 export function ensureMigrations(ch: ClickHouseClient): Promise<void> {
   migrationsReady ??= (async () => {
     let statuses: MigrationStatus[];

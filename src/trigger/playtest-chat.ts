@@ -106,11 +106,10 @@ function digest(header: string, room: string, cells: CellLike[], deathsOf: (c: C
   return lines.filter(Boolean).join("\n");
 }
 
-// Read tools fail safe: a ClickHouse error becomes { error } (the shape the
-// copilot already renders as a one-line note and the model paraphrases) rather
-// than throwing into the agent loop. The raw error goes to the worker log ONLY —
-// a connection error can carry the host, which must never reach the model or a
-// rendered card.
+// Read tools fail safe: a ClickHouse error becomes { error } (the shape the copilot renders
+// as a one-line note and the model paraphrases), never a throw into the agent loop. The raw
+// error goes to the worker log ONLY — a connection error can carry the host, which must never
+// reach the model or a rendered card.
 function readFailed(where: string, e: unknown): { error: string } {
   console.error(`[playtest-chat] ${where} read failed:`, e);
   return { error: `couldn't read ${where} from ClickHouse just now — try again in a moment` };
