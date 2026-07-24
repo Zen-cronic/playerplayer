@@ -1,0 +1,8 @@
+film/
+references/
+explore/
+e2e/
+test-results/
+playwright-report/
+.trigger/
+*.log

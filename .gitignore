@@ -10,6 +10,7 @@ dist/
 
 docs/*
 !docs/arena/
+film/
 references/
 explore/
 .claude/
