@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import "./arena.css";
 
-// The ClickHouse Arena client. Renders the CH-authoritative grid world and posts
-// intents; ClickHouse resolves every tick. The provenance chip shows engine / table
-// / latency — never a connection detail (the CH host stays server-side).
+// ClickHouse Arena client: renders the CH-authoritative grid and posts intents;
+// ClickHouse resolves every tick. The provenance chip shows engine/table/latency, never a
+// connection detail (the CH host stays server-side).
 
 type CellKind = "floor" | "wall" | "hazard" | "spawn" | "coin";
 interface Cell { x: number; y: number; kind: CellKind; }
@@ -124,10 +124,11 @@ export default function ArenaPage() {
   const [chRender, setChRender] = useState(false);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const frameUrlRef = useRef<string | null>(null);
+  // Monotonic request id for the CH-rendered frame: only the newest reply wins.
+  const frameSeqRef = useRef(0);
 
-  // Boot either starts a new match or, with ?match=<id>&as=<playerId>, joins an
-  // existing one and controls that player — that's what makes two browsers a real
-  // shared multiplayer match.
+  // Boot: start a new match, or with ?match=<id>&as=<playerId> join an existing one and
+  // control that player (this is what makes two browsers a shared multiplayer match).
   const start = useCallback(async () => {
     setStarting(true);
     setError(null);
@@ -191,8 +192,7 @@ export default function ArenaPage() {
     [humanId],
   );
 
-  // Toggle the activity heatmap read from the existing game_heatmap MV over this
-  // match — the analytics reuse win, made visible.
+  // Toggle the activity heatmap read from the existing game_heatmap MV over this match.
   const toggleHeat = useCallback(async () => {
     if (heat) {
       setHeat(null);
@@ -255,17 +255,24 @@ export default function ArenaPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [sendIntent]);
 
-  // ClickHouse renders the frame: when the toggle is on, fetch the SQL-drawn <svg>
-  // (proxied same-origin) whenever the tick advances, and show it as an inert <img>.
-  // The bytes are wrapped in a blob: URL so nothing in them can execute or reach out.
+  // ClickHouse renders the frame: when the toggle is on, fetch the SQL-drawn <svg> (proxied
+  // same-origin) on each tick and show it as an inert <img>. The bytes are wrapped in a
+  // blob: URL so nothing in them can execute or reach out.
   useEffect(() => {
     if (!chRender || !matchId) {
+      // Bump the sequence to retire any in-flight request: a reply landing after the
+      // toggle went off can't resurrect a frame.
+      frameSeqRef.current++;
       if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current);
       frameUrlRef.current = null;
       setFrameUrl(null);
       return;
     }
-    let cancelled = false;
+    // Deliberately NOT cancelled on tick advance: a frame round trip can outlast the 500ms
+    // tick, and cancelling on every tick retired each request before it landed (the toggle
+    // hung on its loading state forever). Newest request wins — late replies dropped, the
+    // still-newest reply kept.
+    const seq = ++frameSeqRef.current;
     void (async () => {
       try {
         const res = await fetch("/api/arena/frame", {
@@ -274,21 +281,16 @@ export default function ArenaPage() {
           body: JSON.stringify({ matchId, humanId: humanId ?? -1 }),
         });
         if (!res.ok) throw new Error(`frame ${res.status}`);
-        const url = URL.createObjectURL(new Blob([await res.text()], { type: "image/svg+xml" }));
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
+        const svg = await res.text();
+        if (seq !== frameSeqRef.current) return;
+        const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
         if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current);
         frameUrlRef.current = url;
         setFrameUrl(url);
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (seq === frameSeqRef.current) setError(String(e));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [chRender, matchId, humanId, view?.tick]);
 
   // Revoke the last object URL on unmount.
