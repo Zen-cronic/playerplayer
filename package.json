@@ -19,6 +19,7 @@
     "predev": "node scripts/sync-game-assets.mjs && pnpm run build:sdk",
     "dev": "next dev",
     "dev:trigger": "trigger dev",
+    "prod:trigger": "trigger deploy",
     "prebuild": "node scripts/sync-game-assets.mjs && pnpm run build:sdk",
     "build": "next build",
     "start": "next start",
