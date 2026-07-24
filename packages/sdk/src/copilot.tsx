@@ -290,6 +290,31 @@ export function Copilot({
             })}
           </div>
         ))}
+
+        {busy && (
+          <div
+            className={`ps-response-status is-${status}`}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span className="ps-response-status-mark" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="ps-response-status-copy">
+              <strong>
+                {status === "submitted" ? "Agent is thinking" : "Agent is responding"}
+              </strong>
+              <small>
+                {status === "submitted"
+                  ? "Starting a durable Trigger.dev turn"
+                  : "Streaming live from Trigger.dev"}
+              </small>
+            </span>
+          </div>
+        )}
       </div>
 
       <form
