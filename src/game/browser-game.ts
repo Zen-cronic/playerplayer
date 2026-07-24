@@ -143,6 +143,11 @@ export async function startBrowserGame(opts: BrowserGameOptions): Promise<Browse
     scene: [BrowserBoot, Level, GameOver],
   });
 
+  // Debug handle. The scripted demo shoot steers the player through real key
+  // events and reads position/health here — the same state the headless
+  // harness reads; nothing about the game itself changes.
+  (window as unknown as { __ppGame?: unknown }).__ppGame = game;
+
   game.registry.events.on(
     "changedata-coins_current",
     (_p: unknown, value: number, prev: number) => {
