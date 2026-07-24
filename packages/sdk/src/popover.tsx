@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Copilot, type CopilotProps } from "./copilot";
 
 export interface CopilotPopoverProps extends Omit<CopilotProps, "layout" | "canvasScale"> {
@@ -20,26 +21,33 @@ export function CopilotPopover({
 }: CopilotPopoverProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [expanded, setExpanded] = useState(false);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
-  if (!open) {
-    return (
-      <button
-        aria-label={launcherLabel}
-        onClick={() => setOpen(true)}
-        className="ps-copilot-launcher"
-      >
-        <span className="ps-launcher-mark" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </span>
-        <span className="ps-launcher-label" aria-hidden="true">{launcherLabel}</span>
-        <span className="ps-launcher-live" aria-hidden="true">Live</span>
-      </button>
-    );
-  }
+  // A fixed element still participates in every ancestor stacking context. The
+  // game card intentionally creates one below the sticky app header, which
+  // otherwise covers the expanded popover controls. Portalling the floating UI
+  // to <body> makes its z-index viewport-relative in any host application.
+  useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
 
-  return (
+  if (!portalTarget) return null;
+
+  const content = !open ? (
+    <button
+      aria-label={launcherLabel}
+      onClick={() => setOpen(true)}
+      className="ps-copilot-launcher"
+    >
+      <span className="ps-launcher-mark" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="ps-launcher-label" aria-hidden="true">{launcherLabel}</span>
+      <span className="ps-launcher-live" aria-hidden="true">Live</span>
+    </button>
+  ) : (
     <div
       className={
         expanded
@@ -69,4 +77,6 @@ export function CopilotPopover({
       </div>
     </div>
   );
+
+  return createPortal(content, portalTarget);
 }
