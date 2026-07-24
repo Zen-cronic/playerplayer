@@ -13,6 +13,13 @@ test.describe("smoke: game + popover mount at /", () => {
 
     await expect(page.getByRole("heading", { name: "PlayerPlayer", level: 1 })).toBeVisible();
 
+    // Judges can reach the live ClickHouse game directly from the landing-page
+    // navigation without knowing its URL in advance.
+    const arenaLink = page.getByRole("link", { name: "04 Arena" });
+    await expect(arenaLink).toHaveAttribute("href", "/arena");
+    await expect(arenaLink).toHaveClass(/is-featured/);
+    await expect(arenaLink.getByText("Live")).toBeVisible();
+
     // Phaser injects a <canvas> into the host once the scene boots.
     await expect(page.locator("canvas").first()).toBeVisible({ timeout: 30_000 });
 
@@ -23,8 +30,31 @@ test.describe("smoke: game + popover mount at /", () => {
     // Opening it reveals the panel chrome (header + expand/close controls).
     await launcher.click();
     await expect(page.getByText("PlayerPlayer", { exact: true }).last()).toBeVisible();
-    await expect(page.getByRole("button", { name: "expand" })).toBeVisible();
+    const expand = page.getByRole("button", { name: "expand" });
+    await expect(expand).toBeVisible();
     await expect(page.getByRole("button", { name: "close" })).toBeVisible();
+
+    // Expanded controls must stay above the sticky app header. Clicking shrink
+    // catches regressions where the button is technically visible but covered.
+    await expand.click();
+    const shrink = page.getByRole("button", { name: "shrink" });
+    await expect(shrink).toBeVisible();
+    await shrink.click();
+    await expect(expand).toBeVisible();
+
+    // Hold the session-start request so the submitted state stays visible long
+    // enough to assert (and to capture clearly in the recorded regression flow)
+    // without creating an external Trigger.dev run.
+    await page.evaluate(() => {
+      window.fetch = () => new Promise<Response>(() => undefined);
+    });
+    await page.getByRole("button", { name: "Where do runs die on Level1?" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Agent is thinking" }),
+    ).toBeVisible();
+    await expect(page.getByText("Starting a durable Trigger.dev turn")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+    await page.waitForTimeout(1_200);
 
     await attachErrorReport(info, errors);
     expect(errors.pageErrors, `uncaught page errors:\n${errors.pageErrors.join("\n")}`).toEqual([]);

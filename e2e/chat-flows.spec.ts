@@ -16,6 +16,13 @@ test.describe("live: chat read renders a card from ClickHouse", () => {
     await page.goto("/chat");
     await page.getByRole("button", { name: "Where do runs die on Level1?" }).click();
 
+    // The response lifecycle must be visible independently of the Stop button.
+    // Match both phases because a healthy worker can move from submitted to
+    // streaming before Playwright's next assertion tick.
+    await expect(
+      page.getByRole("status").filter({ hasText: /Agent is (thinking|responding)/ }),
+    ).toBeVisible();
+
     // The heatmap card's provenance names the engine it read from — proof the
     // answer came from a live AggregatingMergeTree query, not a fixture.
     const provenance = page.getByText(/game_heatmap \(AggregatingMergeTree MV\)/);

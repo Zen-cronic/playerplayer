@@ -9,6 +9,7 @@ import { defineConfig, devices } from "@playwright/test";
 // Realtime connection cap.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
+const RECORD_VIDEO = process.env.E2E_VIDEO === "1";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -23,7 +24,7 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "off",
+    video: RECORD_VIDEO ? "on" : "off",
   },
   projects: [
     {
